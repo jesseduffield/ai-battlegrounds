@@ -681,6 +681,10 @@ async function processTurn(): Promise<void> {
         if (action.type === "move") {
           if (result.success) {
             movedThisTurn = true;
+            // If character got trapped during move, break and re-query AI
+            if (current.trapped) {
+              break;
+            }
           } else {
             moveFailedThisIteration = true;
             lastFailure = `MOVE to (${action.targetPosition?.x}, ${action.targetPosition?.y}) failed: ${result.message}. Pick a tile from the TILES YOU CAN MOVE TO list!`;
@@ -708,6 +712,11 @@ async function processTurn(): Promise<void> {
       }
 
       if (moveFailedThisIteration) {
+        continue;
+      }
+
+      // If character got trapped during move, re-query AI for next action
+      if (current.trapped && movedThisTurn) {
         continue;
       }
 

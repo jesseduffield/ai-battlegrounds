@@ -161,15 +161,15 @@ export function findPath(
       if (visited.has(key)) continue;
 
       const tile = world.tiles[next.y][next.x];
-      
+
       // Containers are never walkable, even as destination
       if (hasContainer(tile)) continue;
-      
+
       // Walls/non-ground tiles block unless they're the destination
       if (!canWalkThrough(tile)) {
         if (!positionsEqual(next, to)) continue;
       }
-      
+
       // Characters block unless they're the destination (for attacking)
       const hasCharacter = world.characters.some(
         (c) => c.alive && positionsEqual(c.position, next)
@@ -327,6 +327,21 @@ export function executeAction(
         };
       }
 
+      // Check if destination is occupied by another character
+      const occupant = world.characters.find(
+        (c) =>
+          c.alive &&
+          c.id !== character.id &&
+          positionsEqual(c.position, action.targetPosition!)
+      );
+      if (occupant) {
+        return {
+          success: false,
+          message: `Cannot move onto ${occupant.name}'s position`,
+          events,
+        };
+      }
+
       const startPos = { ...character.position };
       let finalPosition = action.targetPosition;
       let trapTriggered = false;
@@ -337,37 +352,38 @@ export function executeAction(
         const stepPos = path[i];
         const stepTile = world.tiles[stepPos.y][stepPos.x];
 
-        // Find enemy trap (not placed by this character)
-        const enemyTrap = stepTile.traps.find(
-          (t) => t.ownerId !== character.id
-        );
+        // Find any trap on this tile (owner can trigger their own trap!)
+        const trap = stepTile.traps[0];
 
-        if (enemyTrap) {
+        if (trap) {
           // Trap triggered! Stop movement here
           finalPosition = stepPos;
           actualPath = [startPos, ...path.slice(0, i + 1)];
           trapTriggered = true;
 
           // Apply trap damage
-          character.hp -= enemyTrap.damage;
+          character.hp -= trap.damage;
 
           // Apply trap effects: debuff for N turns (can't move, attack halved)
           character.trapped = true;
-          character.attackDebuff = enemyTrap.attackDebuff;
-          character.debuffTurnsRemaining = enemyTrap.debuffDuration;
+          character.attackDebuff = trap.attackDebuff;
+          character.debuffTurnsRemaining = trap.debuffDuration;
 
+          const ownTrap = trap.ownerId === character.id;
           events.push({
             turn: world.turn,
             type: "trap_triggered",
             actorId: character.id,
             position: stepPos,
-            description: `${character.name} stepped on a ${enemyTrap.name}! Took ${enemyTrap.damage} damage! TRAPPED for ${enemyTrap.debuffDuration} turns (can't move, attack reduced)!`,
+            description: `${character.name} stepped on ${
+              ownTrap ? "their own" : "a"
+            } ${trap.name}! Took ${trap.damage} damage! TRAPPED for ${
+              trap.debuffDuration
+            } turns (can't move, attack reduced)!`,
           });
 
           // Remove the trap after it triggers
-          const trapIndex = stepTile.traps.findIndex(
-            (t) => t.id === enemyTrap.id
-          );
+          const trapIndex = stepTile.traps.findIndex((t) => t.id === trap.id);
           if (trapIndex >= 0) {
             stepTile.traps.splice(trapIndex, 1);
           }
@@ -467,7 +483,12 @@ export function executeAction(
       let containerPosition: Position | undefined;
 
       for (const pos of adjacentPositions) {
-        if (pos.x < 0 || pos.x >= world.width || pos.y < 0 || pos.y >= world.height) {
+        if (
+          pos.x < 0 ||
+          pos.x >= world.width ||
+          pos.y < 0 ||
+          pos.y >= world.height
+        ) {
           continue;
         }
         const tile = world.tiles[pos.y][pos.x];
@@ -538,7 +559,12 @@ export function executeAction(
       let fromContainer: Item | undefined;
 
       for (const pos of pickupPositions) {
-        if (pos.x < 0 || pos.x >= world.width || pos.y < 0 || pos.y >= world.height) {
+        if (
+          pos.x < 0 ||
+          pos.x >= world.width ||
+          pos.y < 0 ||
+          pos.y >= world.height
+        ) {
           continue;
         }
         const tile = world.tiles[pos.y][pos.x];
@@ -916,6 +942,54 @@ export function executeAction(
         return { success: false, message: "No item specified", events };
       }
 
+      if (!action.targetPosition) {
+        return {
+          success: false,
+          message: "Must specify adjacent tile to place trap",
+          events,
+        };
+      }
+
+      // Check target is adjacent
+      const dx = Math.abs(action.targetPosition.x - character.position.x);
+      const dy = Math.abs(action.targetPosition.y - character.position.y);
+      if (dx > 1 || dy > 1 || (dx === 0 && dy === 0)) {
+        return {
+          success: false,
+          message: "Can only place trap on adjacent tile (not current tile)",
+          events,
+        };
+      }
+
+      // Check target tile is valid
+      if (
+        action.targetPosition.x < 0 ||
+        action.targetPosition.x >= world.width ||
+        action.targetPosition.y < 0 ||
+        action.targetPosition.y >= world.height
+      ) {
+        return { success: false, message: "Target tile out of bounds", events };
+      }
+
+      const targetTile =
+        world.tiles[action.targetPosition.y][action.targetPosition.x];
+
+      if (!canWalkThrough(targetTile)) {
+        return {
+          success: false,
+          message: "Cannot place trap on non-walkable tile",
+          events,
+        };
+      }
+
+      if (hasContainer(targetTile)) {
+        return {
+          success: false,
+          message: "Cannot place trap on a tile with a container",
+          events,
+        };
+      }
+
       let trapItem = action.targetItemId
         ? character.inventory.find((i) => i.id === action.targetItemId)
         : undefined;
@@ -935,26 +1009,14 @@ export function executeAction(
         return { success: false, message: "Item is not a trap", events };
       }
 
-      // Check if there's a container on the current tile
-      const currentTile =
-        world.tiles[character.position.y][character.position.x];
-      if (hasContainer(currentTile)) {
-        return {
-          success: false,
-          message: "Cannot place trap on a tile with a container",
-          events,
-        };
-      }
-
       // Remove trap from inventory
       const itemIndex = character.inventory.findIndex(
         (i) => i.id === trapItem!.id
       );
       character.inventory.splice(itemIndex, 1);
 
-      // Place trap on current tile
-      const tile = currentTile;
-      tile.traps.push({
+      // Place trap on target tile
+      targetTile.traps.push({
         id: trapItem.id,
         name: trapItem.name,
         ownerId: character.id,
@@ -968,8 +1030,8 @@ export function executeAction(
         type: "place_trap",
         actorId: character.id,
         itemId: trapItem.id,
-        position: { ...character.position },
-        description: `${character.name} placed a ${trapItem.name} (hidden from others)`,
+        position: { ...action.targetPosition },
+        description: `${character.name} placed a ${trapItem.name} at (${action.targetPosition.x}, ${action.targetPosition.y})`,
       });
 
       return {

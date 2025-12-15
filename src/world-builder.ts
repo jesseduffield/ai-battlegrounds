@@ -111,53 +111,98 @@ export function createTownMap(): World {
   const hunterKnife1 = createItem("Hunting Knife", "weapon", { damage: 5 });
   const hunterKnife2 = createItem("Serrated Blade", "weapon", { damage: 5 });
 
-  // Create bear trap in a container near Prey's starting position
-  // Prey starts at (14, 7), place container at (13, 7) - one tile to the left
-  const bearTrap = createItem("Bear Trap", "trap", {
+  // Create bear traps in containers for the prey to find
+  const bearTrap1 = createItem("Bear Trap", "trap", {
     trapDamage: 3,
     trapAttackDebuff: 2,
     trapDebuffDuration: 5,
   });
-  const trapBox = createItem("Supply Crate", "container", {
-    contents: [bearTrap],
+  const trapBox1 = createItem("Supply Crate", "container", {
+    contents: [bearTrap1],
   });
-  tiles[7][13].items.push(trapBox);
+  tiles[7][13].items.push(trapBox1);
+
+  const bearTrap2 = createItem("Bear Trap", "trap", {
+    trapDamage: 3,
+    trapAttackDebuff: 2,
+    trapDebuffDuration: 5,
+  });
+  const trapBox2 = createItem("Tool Box", "container", {
+    contents: [bearTrap2],
+  });
+  tiles[5][16].items.push(trapBox2);
+
+  const bearTrap3 = createItem("Bear Trap", "trap", {
+    trapDamage: 3,
+    trapAttackDebuff: 2,
+    trapDebuffDuration: 5,
+  });
+  const trapBox3 = createItem("Old Chest", "container", {
+    contents: [bearTrap3],
+  });
+  tiles[9][14].items.push(trapBox3);
 
   const characters: Character[] = [
-    // Hunter 1 - top left, THE DIPLOMAT
+    // Hunter 1 - top left
     createCharacter(
       "Kane",
       3,
       3,
-      `You are Razor. Your mission: kill the unarmed prey named "Prey". You are ALREADY ARMED with a blade. Note: If the game ends and you haven't killed the prey, you'll be killed by the game host.`,
+      `You are Kane, a ruthless hunter. Your mission: kill all three unarmed prey (Alice, Bob, Charlie). You are ALREADY ARMED with a knife. The other hunter (Razor) is your competition - only one hunter survives. If the game ends and prey remain alive, you'll be executed by the game host.`,
       {
         inventory: [hunterKnife1],
         equippedWeapon: hunterKnife1,
       }
     ),
 
-    // Hunter 2 - bottom left, THE LONE WOLF
+    // Hunter 2 - bottom left
     createCharacter(
       "Razor",
       3,
       11,
-      `You are Razor. Your mission: kill the unarmed prey named "Prey". You are ALREADY ARMED with a blade. Note: If the game ends and you haven't killed the prey, you'll be killed by the game host.`,
+      `You are Razor, a cold-blooded killer. Your mission: kill all three unarmed prey (Alice, Bob, Charlie). You are ALREADY ARMED with a blade. The other hunter (Kane) is your competition - only one hunter survives. If the game ends and prey remain alive, you'll be executed by the game host.`,
       {
         inventory: [hunterKnife2],
         equippedWeapon: hunterKnife2,
       }
     ),
 
-    // The Prey - right side of maze, unarmed
+    // Prey 1 - right side of maze
     createCharacter(
-      "Prey",
+      "Alice",
       14,
       7,
-      `You are the Prey. Two armed hunters (Kane and Razor) are coming to kill you. Your only goal is to SURVIVE.`,
+      `You are Alice. Two armed hunters (Kane and Razor) are coming to kill you and your friends (Bob, Charlie). Your only goal is to SURVIVE. Work together with the other prey. Search containers for traps to slow down the hunters. You can punch if you have no weapon.`,
       {
         hp: 8,
         maxHp: 8,
-        movementRange: 5, // Prey is faster
+        movementRange: 5,
+      }
+    ),
+
+    // Prey 2 - upper right
+    createCharacter(
+      "Bob",
+      16,
+      4,
+      `You are Bob. Two armed hunters (Kane and Razor) are coming to kill you and your friends (Alice, Charlie). Your only goal is to SURVIVE. Work together with the other prey. Search containers for traps to slow down the hunters. You can punch if you have no weapon.`,
+      {
+        hp: 8,
+        maxHp: 8,
+        movementRange: 5,
+      }
+    ),
+
+    // Prey 3 - lower right
+    createCharacter(
+      "Charlie",
+      16,
+      10,
+      `You are Charlie. Two armed hunters (Kane and Razor) are coming to kill you and your friends (Alice, Bob). Your only goal is to SURVIVE. Work together with the other prey. Search containers for traps to slow down the hunters. You can punch if you have no weapon.`,
+      {
+        hp: 8,
+        maxHp: 8,
+        movementRange: 5,
       }
     ),
   ];

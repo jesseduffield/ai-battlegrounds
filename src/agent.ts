@@ -29,6 +29,80 @@ function manhattanDistance(a: Position, b: Position): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
+function findTargetPosition(
+  targetName: string,
+  knowledge: CharacterKnowledge,
+  character: Character
+): Position | null {
+  const nameLower = targetName.toLowerCase();
+
+  // Check visible characters
+  for (const { character: c, position } of knowledge.visible.characters) {
+    if (c.name.toLowerCase().includes(nameLower)) {
+      return position;
+    }
+  }
+
+  // Check visible items (including container contents)
+  for (const { item, position } of knowledge.visible.items) {
+    if (item.name.toLowerCase().includes(nameLower)) {
+      return position;
+    }
+    if (item.type === "container" && item.contents) {
+      for (const content of item.contents) {
+        if (content.name.toLowerCase().includes(nameLower)) {
+          return position;
+        }
+      }
+    }
+  }
+
+  // Check map memory for remembered locations
+  for (const [key, memory] of character.mapMemory) {
+    const [x, y] = key.split(",").map(Number);
+    if (memory.items) {
+      for (const itemName of memory.items) {
+        if (itemName.toLowerCase().includes(nameLower)) {
+          return { x, y };
+        }
+      }
+    }
+    if (memory.characterName?.toLowerCase().includes(nameLower)) {
+      return { x, y };
+    }
+  }
+
+  return null;
+}
+
+function findBestTileToward(
+  targetPos: Position,
+  reachableTiles: Position[],
+  currentPos: Position
+): Position | null {
+  if (reachableTiles.length === 0) return null;
+
+  // Sort by distance to target (closest first)
+  const sorted = [...reachableTiles].sort((a, b) => {
+    const distA = manhattanDistance(a, targetPos);
+    const distB = manhattanDistance(b, targetPos);
+    return distA - distB;
+  });
+
+  // Return the reachable tile closest to the target
+  // But only if it's closer than our current position
+  const bestTile = sorted[0];
+  const currentDist = manhattanDistance(currentPos, targetPos);
+  const bestDist = manhattanDistance(bestTile, targetPos);
+
+  if (bestDist < currentDist) {
+    return bestTile;
+  }
+
+  // If we can't get closer, return the tile anyway (might need to go around)
+  return bestTile;
+}
+
 function generateAsciiMap(world: World, character: Character): string {
   const lines: string[] = [];
 
@@ -213,12 +287,21 @@ function formatKnowledge(
     }
   }
 
-  lines.push(
-    `\n=== TILES YOU CAN MOVE TO (max ${character.movementRange} tiles) ===`
-  );
+  const pos = knowledge.status.position;
+
+  lines.push(`\n⚠️ TILES YOU CAN MOVE TO (ONLY these - pick one!):`);
   if (reachable.length > 0) {
-    const reachableStr = reachable.map((p) => `(${p.x},${p.y})`).join(", ");
-    lines.push(reachableStr);
+    const sortedReachable = [...reachable].sort((a, b) => {
+      const distA = Math.abs(a.x - pos.x) + Math.abs(a.y - pos.y);
+      const distB = Math.abs(b.x - pos.x) + Math.abs(b.y - pos.y);
+      return distB - distA;
+    });
+    const farthest = sortedReachable.slice(0, 10);
+    const reachableStr = farthest.map((p) => `(${p.x},${p.y})`).join(", ");
+    lines.push(`Farthest: ${reachableStr}`);
+    if (sortedReachable.length > 10) {
+      lines.push(`(and ${sortedReachable.length - 10} closer tiles...)`);
+    }
   } else {
     lines.push(`None - you are blocked!`);
   }
@@ -229,8 +312,6 @@ function formatKnowledge(
   const groundItems = knowledge.visible.items.filter(
     (i) => i.item.type !== "container"
   );
-
-  const pos = knowledge.status.position;
   const isAdjacent = (p: { x: number; y: number }) =>
     Math.abs(p.x - pos.x) <= 1 &&
     Math.abs(p.y - pos.y) <= 1 &&
@@ -283,9 +364,28 @@ function formatKnowledge(
   }
 
   if (groundItems.length > 0) {
-    lines.push(`\nItems on the ground:`);
-    for (const { item, position } of groundItems) {
-      lines.push(`  - ${item.name} at ${formatPosition(position)}`);
+    const weaponsOnGround = groundItems.filter((i) => i.item.type === "weapon");
+    const otherItems = groundItems.filter((i) => i.item.type !== "weapon");
+
+    if (weaponsOnGround.length > 0 && !hasWeapon) {
+      lines.push(`\n⚠️ WEAPONS ON THE GROUND (you're unarmed - grab one!):`);
+      for (const { item, position } of weaponsOnGround) {
+        lines.push(
+          `  -> ${item.name} at ${formatPosition(position)} - PICKUP this!`
+        );
+      }
+    } else if (weaponsOnGround.length > 0) {
+      lines.push(`\nWeapons on the ground:`);
+      for (const { item, position } of weaponsOnGround) {
+        lines.push(`  - ${item.name} at ${formatPosition(position)}`);
+      }
+    }
+
+    if (otherItems.length > 0) {
+      lines.push(`\nOther items on the ground:`);
+      for (const { item, position } of otherItems) {
+        lines.push(`  - ${item.name} at ${formatPosition(position)}`);
+      }
     }
   }
 
@@ -317,7 +417,9 @@ function formatKnowledge(
   lines.push(`  - DROP item_name : Drop item`);
   lines.push(``);
   lines.push(`These END your turn:`);
-  lines.push(`  - ATTACK character_name : Attack adjacent character (1 tile)`);
+  lines.push(
+    `  - ATTACK character_name : Attack adjacent character (1 tile). Works unarmed (punch for 1 damage)!`
+  );
   lines.push(
     `  - TALK character_name "message" : Speak to character (2 tiles)`
   );
@@ -422,12 +524,16 @@ type JsonResponse = {
 
 function parseJsonActions(
   jsonResponse: JsonResponse,
-  knowledge: CharacterKnowledge
+  knowledge: CharacterKnowledge,
+  world: World,
+  character: Character
 ): { actions: Action[]; errors: string[] } {
   const actions: Action[] = [];
   const errors: string[] = [];
   let hasMoved = false;
   let hasSearched = false;
+  const pendingTrapPickups: { id: string; name: string }[] = [];
+  const reachableTiles = getReachableTiles(world, character);
 
   for (const jsonAction of jsonResponse.actions) {
     const actionType = jsonAction.action.toLowerCase() as ValidActionType;
@@ -454,8 +560,37 @@ function parseJsonActions(
             targetPosition: { x: jsonAction.x!, y: jsonAction.y! },
           };
           hasMoved = true;
+        } else if (jsonAction.target) {
+          // MOVE TO [target name] - find best tile toward target
+          const targetPos = findTargetPosition(
+            jsonAction.target,
+            knowledge,
+            character
+          );
+          if (targetPos) {
+            const bestTile = findBestTileToward(
+              targetPos,
+              reachableTiles,
+              character.position
+            );
+            if (bestTile) {
+              action = {
+                type: "move",
+                targetPosition: bestTile,
+              };
+              hasMoved = true;
+            } else {
+              errors.push(
+                `MOVE TO "${jsonAction.target}" failed: no reachable tiles`
+              );
+            }
+          } else {
+            errors.push(
+              `MOVE TO "${jsonAction.target}" failed: target not found or not remembered`
+            );
+          }
         } else {
-          errors.push("MOVE requires x and y coordinates");
+          errors.push("MOVE requires x,y coordinates OR a target name");
         }
         break;
 
@@ -532,7 +667,8 @@ function parseJsonActions(
 
       case "pickup":
         if (jsonAction.target) {
-          let foundItem = false;
+          let foundItem: { id: string; name: string; type: string } | null =
+            null;
           // Check containers first
           for (const visibleTile of knowledge.visible.tiles) {
             for (const item of visibleTile.items) {
@@ -541,8 +677,8 @@ function parseJsonActions(
                   .toLowerCase()
                   .includes(jsonAction.target!.toLowerCase())
               ) {
+                foundItem = { id: item.id, name: item.name, type: item.type };
                 action = { type: "pick_up", targetItemId: item.id };
-                foundItem = true;
                 break;
               }
               if (item.type === "container" && item.contents) {
@@ -552,8 +688,12 @@ function parseJsonActions(
                       .toLowerCase()
                       .includes(jsonAction.target!.toLowerCase())
                   ) {
+                    foundItem = {
+                      id: content.id,
+                      name: content.name,
+                      type: content.type,
+                    };
                     action = { type: "pick_up", targetItemId: content.id };
-                    foundItem = true;
                     break;
                   }
                 }
@@ -564,6 +704,8 @@ function parseJsonActions(
           }
           if (!foundItem) {
             action = { type: "pick_up", targetItemName: jsonAction.target };
+          } else if (foundItem.type === "trap") {
+            pendingTrapPickups.push({ id: foundItem.id, name: foundItem.name });
           }
         } else {
           errors.push("PICKUP requires an item name");
@@ -605,32 +747,42 @@ function parseJsonActions(
           errors.push(
             `PLACE failed: Cannot place a trap after searching a container in the same turn.`
           );
-        } else if (jsonAction.target) {
+        } else if (!jsonAction.target) {
+          errors.push("PLACE requires a trap name");
+        } else if (jsonAction.x === null || jsonAction.y === null) {
+          errors.push("PLACE requires x,y coordinates for adjacent tile");
+        } else {
           const trapsInInv = knowledge.status.inventory.filter(
             (i) => i.type === "trap"
           );
-          if (trapsInInv.length === 0) {
+          const allTraps = [
+            ...trapsInInv.map((i) => ({ id: i.id, name: i.name })),
+            ...pendingTrapPickups,
+          ];
+          if (allTraps.length === 0) {
             errors.push(
               `PLACE failed: No traps in inventory! You already placed it or never picked one up.`
             );
           } else {
-            const item = trapsInInv.find((i) =>
+            const item = allTraps.find((i) =>
               i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
             );
             if (item) {
-              action = { type: "place", targetItemId: item.id };
+              action = {
+                type: "place",
+                targetItemId: item.id,
+                targetPosition: { x: jsonAction.x, y: jsonAction.y },
+              };
             } else {
               errors.push(
                 `PLACE failed: "${
                   jsonAction.target
-                }" not found in inventory. You have: ${trapsInInv
+                }" not found in inventory. You have: ${allTraps
                   .map((t) => t.name)
                   .join(", ")}`
               );
             }
           }
-        } else {
-          errors.push("PLACE requires a trap name");
         }
         break;
 
@@ -677,28 +829,33 @@ export async function getAgentDecision(
   let situationDescription = formatKnowledge(world, character, knowledge);
 
   if (lastFailure) {
-    situationDescription = `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}\nYou must choose a DIFFERENT action. Check the "TILES YOU CAN MOVE TO" list carefully!\n\n${situationDescription}`;
+    situationDescription = `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}
+
+TIP: Use MOVE with a target name (e.g., {"action": "MOVE", "target": "Hunting Knife"}) to auto-navigate!
+
+${situationDescription}`;
   }
 
   const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality. Act accordingly.
 
 AVAILABLE ACTIONS (use exact names in "action" field):
-- MOVE: Move to a tile (ONE move only, go directly to destination). Requires x and y.
-- ATTACK: Attack an adjacent character. Requires target (character name). Ends turn.
+- MOVE: Two options:
+  1. MOVE with x,y coordinates from "TILES YOU CAN MOVE TO" list
+  2. MOVE with target name (e.g., "Hunting Knife", "Supply Crate", "Kane") - auto-navigates toward it!
+- ATTACK: Attack an adjacent character. Requires target (character name). Works unarmed (punch)! Ends turn.
 - TALK: Speak to character within 2 tiles. Requires target and message. Ends turn.
 - SEARCH: Search an adjacent container (can't walk on container tiles). Requires target (container name).
 - PICKUP: Pick up item from adjacent searched container or ground. Requires target (item name).
 - EQUIP: Equip a weapon or clothing from inventory. Requires target (item name).
-- PLACE: Place a trap on current tile (NOT on container tiles!). Requires target (trap name). Only works if you have a trap!
+- PLACE: Place trap on ADJACENT tile. Requires x, y (adjacent coords) and target (trap name). Warning: you can trigger your own trap!
 - DROP: Drop an item from inventory. Requires target (item name).
 - WAIT: End turn doing nothing. No parameters needed.
 
 RULES:
-- ONE MOVE PER TURN! Pick your destination, move directly there in a single action.
+- MOVE: Use target name (easier) OR pick from "TILES YOU CAN MOVE TO" list
 - "CAN ATTACK" = adjacent, attack now. "CAN TALK" = within 2 tiles.
 - You can chain: MOVE → then SEARCH/PICKUP/EQUIP/PLACE → then ATTACK or TALK
 - ATTACK or TALK ends your turn
-- Cannot PLACE a trap after SEARCH in the same turn
 - TRAPS are invisible to enemies! Place them in chokepoints
 
 Respond with JSON containing:
@@ -707,10 +864,10 @@ Respond with JSON containing:
 
 EXAMPLES:
 {"reasoning": "Gotta run. NOW.", "actions": [{"action": "MOVE", "x": 12, "y": 5}]}
+{"reasoning": "Need that knife!", "actions": [{"action": "MOVE", "target": "Hunting Knife"}, {"action": "PICKUP", "target": "Hunting Knife"}]}
 {"reasoning": "Die.", "actions": [{"action": "ATTACK", "target": "Kane"}]}
-{"reasoning": "Maybe we don't have to do this...", "actions": [{"action": "TALK", "target": "Razor", "message": "Wait!"}]}
 {"reasoning": "A knife! Hell yes.", "actions": [{"action": "PICKUP", "target": "Knife"}, {"action": "EQUIP", "target": "Knife"}]}
-{"reasoning": "Walk into my trap, idiots.", "actions": [{"action": "PLACE", "target": "Bear Trap"}]}`;
+{"reasoning": "Walk into my trap, idiots.", "actions": [{"action": "PLACE", "x": 5, "y": 6, "target": "Bear Trap"}]}`;
 
   const userPrompt = `${character.personalityPrompt}
 
@@ -721,7 +878,7 @@ What do you do?`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.2",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -751,7 +908,12 @@ What do you do?`;
       };
     }
 
-    const { actions, errors } = parseJsonActions(jsonResponse, knowledge);
+    const { actions, errors } = parseJsonActions(
+      jsonResponse,
+      knowledge,
+      world,
+      character
+    );
 
     if (errors.length > 0) {
       console.warn("Action parsing errors:", errors);
