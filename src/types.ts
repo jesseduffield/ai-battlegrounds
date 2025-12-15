@@ -5,9 +5,19 @@ export type Position = {
 
 export type TileType = "ground" | "wall" | "door" | "grass";
 
+export type PlacedTrap = {
+  id: string;
+  name: string;
+  ownerId: string;
+  damage: number;
+  attackDebuff: number;
+  debuffDuration: number;
+};
+
 export type Tile = {
   type: TileType;
   items: Item[];
+  traps: PlacedTrap[];
   roomId?: string;
 };
 
@@ -16,6 +26,7 @@ export type ItemType =
   | "clothing"
   | "consumable"
   | "container"
+  | "trap"
   | "misc";
 
 export type Item = {
@@ -26,6 +37,9 @@ export type Item = {
   armor?: number;
   contents?: Item[];
   searched?: boolean;
+  trapDamage?: number;
+  trapAttackDebuff?: number;
+  trapDebuffDuration?: number;
 };
 
 export type TileMemory = {
@@ -51,6 +65,9 @@ export type Character = {
   viewDistance: number;
   memories: Memory[];
   mapMemory: Map<string, TileMemory>;
+  debuffTurnsRemaining: number;
+  trapped?: boolean;
+  attackDebuff?: number;
 };
 
 export type MemoryType =
@@ -101,6 +118,7 @@ export type ActionType =
   | "unequip"
   | "attack"
   | "talk"
+  | "place"
   | "wait";
 
 export type Action = {
@@ -135,7 +153,9 @@ export type GameEventType =
   | "damage"
   | "death"
   | "talk"
-  | "miss";
+  | "miss"
+  | "place_trap"
+  | "trap_triggered";
 
 export type GameEvent = {
   turn: number;

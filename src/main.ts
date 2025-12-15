@@ -226,7 +226,8 @@ function addReasoningEntry(
   character: Character,
   reasoning: string,
   fullPrompt?: string,
-  fullResponse?: string
+  fullResponse?: string,
+  errors?: string[]
 ): void {
   if (fullPrompt && fullResponse) {
     const decision: AgentDecisionLog = {
@@ -248,7 +249,13 @@ function addReasoningEntry(
   entry.className = "log-entry";
   entry.dataset.snapshotIndex = String(snapshots.length - 1);
 
-  const detailsId = `details-${Date.now()}`;
+  const errorHtml =
+    errors && errors.length > 0
+      ? `<div style="color: #f66; font-size: 11px; margin-top: 4px;">⚠ Errors: ${errors
+          .map((e) => escapeHtml(e))
+          .join(", ")}</div>`
+      : "";
+
   const promptHtml =
     fullPrompt && fullResponse
       ? `
@@ -267,6 +274,7 @@ function addReasoningEntry(
   entry.innerHTML = `
     <div class="log-turn">Turn ${world.turn} — ${character.name}'s thinking</div>
     <div style="color: #888; font-style: italic;">"${reasoning}"</div>
+    ${errorHtml}
     ${promptHtml}
   `;
 
@@ -514,6 +522,23 @@ async function processTurn(): Promise<void> {
   saveSnapshot();
 
   try {
+    // Decrement debuff at start of turn
+    if (current.debuffTurnsRemaining > 0) {
+      current.debuffTurnsRemaining--;
+      if (current.debuffTurnsRemaining === 0) {
+        current.trapped = false;
+        current.attackDebuff = undefined;
+        const freeEvent: GameEvent = {
+          turn: world.turn,
+          type: "move",
+          actorId: current.id,
+          description: `${current.name} has broken free from the trap!`,
+        };
+        allEvents.push(freeEvent);
+        addLogEntry(freeEvent);
+      }
+    }
+
     const lookResult = executeAction(world, current, { type: "look_around" });
     for (const event of lookResult.events) {
       allEvents.push(event);
@@ -523,15 +548,18 @@ async function processTurn(): Promise<void> {
     let movedThisTurn = false;
     let turnEnded = false;
     let maxIterations = 5;
+    let lastFailure: string | undefined = undefined;
 
     while (!turnEnded && current.alive && maxIterations > 0) {
       maxIterations--;
 
-      const { actions, reasoning, fullPrompt, fullResponse } =
-        await getAgentDecision(world, current);
-      addReasoningEntry(current, reasoning, fullPrompt, fullResponse);
+      const { actions, reasoning, fullPrompt, fullResponse, errors } =
+        await getAgentDecision(world, current, lastFailure);
+      addReasoningEntry(current, reasoning, fullPrompt, fullResponse, errors);
 
+      lastFailure = undefined;
       let searchedContainer = false;
+      let moveFailedThisIteration = false;
 
       for (const action of actions) {
         if (action.type === "move" && movedThisTurn) {
@@ -600,8 +628,14 @@ async function processTurn(): Promise<void> {
           addLogEntry(evt);
         }
 
-        if (action.type === "move" && result.success) {
-          movedThisTurn = true;
+        if (action.type === "move") {
+          if (result.success) {
+            movedThisTurn = true;
+          } else {
+            moveFailedThisIteration = true;
+            lastFailure = `MOVE to (${action.targetPosition?.x}, ${action.targetPosition?.y}) failed: ${result.message}. Pick a tile from the TILES YOU CAN MOVE TO list!`;
+            break;
+          }
         }
 
         if (action.type === "search_container" && result.success) {
@@ -623,6 +657,10 @@ async function processTurn(): Promise<void> {
         }
       }
 
+      if (moveFailedThisIteration) {
+        continue;
+      }
+
       if (!searchedContainer) {
         turnEnded = true;
       }
@@ -630,6 +668,41 @@ async function processTurn(): Promise<void> {
 
     currentCharacterIndex++;
     const alive = getAliveCharacters();
+
+    if (alive.length <= 1) {
+      const winner = alive[0];
+      const gameOverEvent: GameEvent = {
+        turn: world.turn,
+        type: "death",
+        actorId: winner?.id ?? "",
+        description: winner
+          ? `🏆 GAME OVER! ${winner.name} is the last one standing!`
+          : "💀 GAME OVER! Everyone is dead!",
+      };
+      allEvents.push(gameOverEvent);
+      addLogEntry(gameOverEvent);
+
+      if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = null;
+        updateAutoPlayButton();
+      }
+
+      renderWorld();
+      updateUI();
+      updateButton(false);
+
+      const btn = document.getElementById("next-turn-btn") as HTMLButtonElement;
+      if (btn) {
+        btn.textContent = "Game Over";
+        btn.disabled = true;
+      }
+
+      showGameOverBanner(winner?.name ?? null);
+      saveCompactLogsToFile();
+      return;
+    }
+
     if (currentCharacterIndex >= alive.length) {
       currentCharacterIndex = 0;
       world.turn++;
@@ -725,6 +798,148 @@ function exportLogs(): void {
     .writeText(text)
     .then(() => {
       const btn = document.getElementById("export-logs-btn");
+      if (btn) {
+        const originalText = btn.textContent;
+        btn.textContent = "✓ Copied!";
+        setTimeout(() => {
+          btn.textContent = originalText;
+        }, 2000);
+      }
+    })
+    .catch((err) => {
+      console.error("Failed to copy logs:", err);
+      alert("Failed to copy to clipboard. Check console for the full log.");
+      console.log(text);
+    });
+}
+
+function showGameOverBanner(winnerName: string | null): void {
+  const banner = document.createElement("div");
+  banner.id = "game-over-banner";
+  banner.setAttribute("role", "alert");
+  banner.setAttribute("aria-live", "assertive");
+  banner.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 3px solid #ffcc44;
+    padding: 2rem 3rem;
+    border-radius: 12px;
+    z-index: 1000;
+    text-align: center;
+    box-shadow: 0 0 50px rgba(255, 204, 68, 0.3);
+  `;
+  banner.innerHTML = `
+    <h2 style="font-family: 'Press Start 2P', cursive; font-size: 1.5rem; color: #ffcc44; margin-bottom: 1rem;">
+      🏆 GAME OVER 🏆
+    </h2>
+    <p style="font-size: 1.2rem; color: #e8e8f0; margin-bottom: 0.5rem;">
+      ${
+        winnerName
+          ? `${winnerName} is the last one standing!`
+          : "Everyone is dead!"
+      }
+    </p>
+    <p style="font-size: 0.9rem; color: #8888a0; margin-top: 1rem;">
+      Logs printed to browser console
+    </p>
+    <button id="close-game-over" style="
+      margin-top: 1rem;
+      padding: 0.5rem 1.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      background: #ffcc44;
+      border: none;
+      border-radius: 4px;
+      color: #000;
+      cursor: pointer;
+      font-weight: 600;
+    ">Close</button>
+  `;
+  document.body.appendChild(banner);
+
+  document.getElementById("close-game-over")?.addEventListener("click", () => {
+    banner.remove();
+  });
+}
+
+function getCompactLogText(): string {
+  const lines: string[] = [];
+
+  lines.push("=".repeat(80));
+  lines.push("AILAND GAME LOG (COMPACT)");
+  lines.push(`Exported at: ${new Date().toISOString()}`);
+  lines.push(`Current Turn: ${world.turn}`);
+  lines.push("=".repeat(80));
+  lines.push("");
+
+  lines.push("WORLD STATE:");
+  lines.push("-".repeat(40));
+  for (const char of world.characters) {
+    const status = char.alive ? `HP: ${char.hp}/${char.maxHp}` : "DEAD";
+    const weapon = char.equippedWeapon?.name ?? "Unarmed";
+    lines.push(
+      `  ${char.name}: ${status}, Weapon: ${weapon}, Position: (${char.position.x}, ${char.position.y})`
+    );
+  }
+  lines.push("");
+
+  lines.push("CHRONOLOGICAL LOG:");
+  lines.push("-".repeat(40));
+
+  for (const entry of chronologicalLog) {
+    if (entry.type === "event") {
+      lines.push(`[Turn ${entry.turn}] ${entry.description}`);
+    } else {
+      const d = entry.decision;
+      lines.push(`[Turn ${d.turn}] ${d.character} thinks: "${d.reasoning}"`);
+
+      try {
+        const response = JSON.parse(d.fullResponse);
+        if (response.actions && Array.isArray(response.actions)) {
+          const actionStrs = response.actions.map(
+            (a: {
+              action: string;
+              x?: number;
+              y?: number;
+              target?: string;
+              message?: string;
+            }) => {
+              let str = a.action;
+              if (a.x !== null && a.y !== null) str += ` (${a.x}, ${a.y})`;
+              if (a.target) str += ` "${a.target}"`;
+              if (a.message) str += `: "${a.message}"`;
+              return str;
+            }
+          );
+          lines.push(`  Actions: ${actionStrs.join(", ")}`);
+        }
+      } catch {
+        lines.push(`  Response: ${d.fullResponse.substring(0, 200)}...`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function saveCompactLogsToFile(): void {
+  const text = getCompactLogText();
+
+  // Log to console for automated reading via browser tools
+  console.log("=== GAME LOG START ===");
+  console.log(text);
+  console.log("=== GAME LOG END ===");
+}
+
+function exportLogsCompact(): void {
+  const text = getCompactLogText();
+
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      const btn = document.getElementById("export-compact-btn");
       if (btn) {
         const originalText = btn.textContent;
         btn.textContent = "✓ Copied!";
@@ -857,6 +1072,9 @@ function init(): void {
 
   const exportLogsBtn = document.getElementById("export-logs-btn");
   exportLogsBtn?.addEventListener("click", exportLogs);
+
+  const exportCompactBtn = document.getElementById("export-compact-btn");
+  exportCompactBtn?.addEventListener("click", exportLogsCompact);
 
   const returnBtn = document.getElementById("return-to-present");
   returnBtn?.addEventListener("click", returnToPresent);

@@ -323,13 +323,53 @@
     @media (max-width: 1200px) {
       main {
         grid-template-columns: 1fr 350px;
+        grid-template-rows: 1fr auto;
+      }
+      .game-area {
+        grid-column: 1;
+        grid-row: 1;
+      }
+      .sidebar-left {
+        grid-column: 2;
+        grid-row: 1 / 3;
       }
       .sidebar-right {
-        display: none;
+        grid-column: 1;
+        grid-row: 2;
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+        max-height: 250px;
       }
-      .sidebar-left .event-log {
-        display: flex;
-        flex: 1;
+      .sidebar-right .event-log .panel-content {
+        max-height: 180px;
+      }
+    }
+
+    /* Very small screens: single column */
+    @media (max-width: 800px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto 200px;
+      }
+      .game-area {
+        grid-column: 1;
+        grid-row: 1;
+        padding: 1rem;
+      }
+      .sidebar-left {
+        grid-column: 1;
+        grid-row: 2;
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+      }
+      .sidebar-right {
+        grid-column: 1;
+        grid-row: 3;
+        max-height: 200px;
+      }
+      #game-canvas {
+        max-width: 100%;
+        height: auto;
       }
     }
   </style>
@@ -378,7 +418,10 @@
           <button class="primary" id="next-turn-btn">Next Turn</button>
           <button id="auto-play-btn">Auto Play</button>
         </div>
-        <button id="export-logs-btn" title="Copy logs to clipboard">📋 Export Logs</button>
+        <div class="button-row">
+          <button id="export-logs-btn" title="Copy full logs to clipboard">📋 Full</button>
+          <button id="export-compact-btn" title="Copy compact logs to clipboard">📋 Compact</button>
+        </div>
       </div>
     </div>
 

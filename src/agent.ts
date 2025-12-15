@@ -112,9 +112,17 @@ function formatKnowledge(
   lines.push(`HP: ${knowledge.status.hp}/${knowledge.status.maxHp}`);
   lines.push(`Position: ${formatPosition(knowledge.status.position)}`);
 
+  if (character.debuffTurnsRemaining > 0) {
+    lines.push(
+      `*** TRAPPED! Cannot move, attack halved! (${character.debuffTurnsRemaining} turns remaining) ***`
+    );
+  }
+
   if (hasWeapon) {
     lines.push(
-      `*** YOU ARE ARMED with ${weaponName} (${weaponDamage} damage) ***`
+      `*** YOU ARE ARMED with ${weaponName} (${weaponDamage} damage${
+        character.debuffTurnsRemaining > 0 ? " - HALVED while trapped!" : ""
+      }) ***`
     );
   } else {
     lines.push(
@@ -140,10 +148,14 @@ function formatKnowledge(
       const weapon = other.equippedWeapon
         ? `armed with ${other.equippedWeapon.name}`
         : "unarmed";
+      const trappedStatus =
+        other.debuffTurnsRemaining > 0
+          ? `, TRAPPED (${other.debuffTurnsRemaining} turns, attack halved!)`
+          : "";
 
       if (canAttack) {
         lines.push(
-          `  *** ${other.name} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${other.maxHp}, ${weapon}]`
+          `  *** ${other.name} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${other.maxHp}, ${weapon}${trappedStatus}]`
         );
       } else if (dist <= 2) {
         lines.push(
@@ -151,13 +163,13 @@ function formatKnowledge(
             position
           )} - CAN TALK (distance: ${dist}) ** [HP: ${other.hp}/${
             other.maxHp
-          }, ${weapon}]`
+          }, ${weapon}${trappedStatus}]`
         );
       } else {
         lines.push(
           `  - ${other.name} at ${formatPosition(position)} [HP: ${other.hp}/${
             other.maxHp
-          }, ${weapon}] - distance: ${dist} tiles`
+          }, ${weapon}${trappedStatus}] - distance: ${dist} tiles`
         );
       }
     }
@@ -308,196 +320,320 @@ function formatKnowledge(
   return lines.join("\n");
 }
 
-function parseSingleAction(
-  actionLine: string,
+// Valid action types
+const VALID_ACTION_TYPES = [
+  "move",
+  "attack",
+  "talk",
+  "search",
+  "pickup",
+  "drop",
+  "equip",
+  "place",
+  "wait",
+] as const;
+
+type ValidActionType = (typeof VALID_ACTION_TYPES)[number];
+
+// JSON Schema for structured output
+// Note: strict mode requires all properties in 'required', so we use nullable types
+const actionResponseSchema = {
+  name: "game_actions",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      reasoning: {
+        type: "string",
+        description: "1-2 sentences explaining your decision",
+      },
+      actions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: [
+                "MOVE",
+                "ATTACK",
+                "TALK",
+                "SEARCH",
+                "PICKUP",
+                "DROP",
+                "EQUIP",
+                "PLACE",
+                "WAIT",
+              ],
+              description: "The action type",
+            },
+            x: {
+              type: ["number", "null"],
+              description: "X coordinate for MOVE (null if not applicable)",
+            },
+            y: {
+              type: ["number", "null"],
+              description: "Y coordinate for MOVE (null if not applicable)",
+            },
+            target: {
+              type: ["string", "null"],
+              description:
+                "Target name for ATTACK, TALK, SEARCH, PICKUP, DROP, EQUIP, PLACE (null if not applicable)",
+            },
+            message: {
+              type: ["string", "null"],
+              description: "Message content for TALK (null if not applicable)",
+            },
+          },
+          required: ["action", "x", "y", "target", "message"],
+          additionalProperties: false,
+        },
+        description: "List of actions to perform this turn",
+      },
+    },
+    required: ["reasoning", "actions"],
+    additionalProperties: false,
+  },
+};
+
+type JsonAction = {
+  action: string;
+  x: number | null;
+  y: number | null;
+  target: string | null;
+  message: string | null;
+};
+
+type JsonResponse = {
+  reasoning: string;
+  actions: JsonAction[];
+};
+
+function parseJsonActions(
+  jsonResponse: JsonResponse,
   knowledge: CharacterKnowledge
-): Action | null {
-  const upperAction = actionLine.toUpperCase();
-
-  if (upperAction.startsWith("MOVE")) {
-    const match = actionLine.match(/MOVE\s+(\d+)\s+(\d+)/i);
-    if (match) {
-      return {
-        type: "move",
-        targetPosition: { x: parseInt(match[1]), y: parseInt(match[2]) },
-      };
-    }
-  }
-
-  if (upperAction.startsWith("LOOK")) {
-    return { type: "look_around" };
-  }
-
-  if (upperAction.startsWith("SEARCH")) {
-    const match = actionLine.match(/SEARCH\s+(.+)/i);
-    if (match) {
-      const containerName = match[1].trim().toLowerCase();
-      const container = knowledge.visible.items.find(
-        (i) =>
-          i.item.type === "container" &&
-          i.item.name.toLowerCase().includes(containerName)
-      );
-      if (container) {
-        return { type: "search_container", targetItemId: container.item.id };
-      }
-    }
-  }
-
-  if (upperAction.startsWith("PICKUP")) {
-    const match = actionLine.match(/PICKUP\s+(.+)/i);
-    if (match) {
-      const itemName = match[1].trim().toLowerCase();
-
-      for (const visibleTile of knowledge.visible.tiles) {
-        for (const item of visibleTile.items) {
-          if (item.name.toLowerCase().includes(itemName)) {
-            return { type: "pick_up", targetItemId: item.id };
-          }
-          if (item.type === "container" && item.contents) {
-            for (const content of item.contents) {
-              if (content.name.toLowerCase().includes(itemName)) {
-                return { type: "pick_up", targetItemId: content.id };
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (upperAction.startsWith("DROP")) {
-    const match = actionLine.match(/DROP\s+(.+)/i);
-    if (match) {
-      const itemName = match[1].trim().toLowerCase();
-      const item = knowledge.status.inventory.find((i) =>
-        i.name.toLowerCase().includes(itemName)
-      );
-      if (item) {
-        return { type: "drop", targetItemId: item.id };
-      }
-    }
-  }
-
-  if (upperAction.startsWith("EQUIP")) {
-    const match = actionLine.match(/EQUIP\s+(.+)/i);
-    if (match) {
-      const itemName = match[1].trim();
-      const itemNameLower = itemName.toLowerCase();
-      const item = knowledge.status.inventory.find((i) =>
-        i.name.toLowerCase().includes(itemNameLower)
-      );
-      if (item) {
-        return { type: "equip", targetItemId: item.id };
-      }
-      for (const visibleTile of knowledge.visible.tiles) {
-        for (const tileItem of visibleTile.items) {
-          if (tileItem.type === "container" && tileItem.contents) {
-            for (const content of tileItem.contents) {
-              if (content.name.toLowerCase().includes(itemNameLower)) {
-                return { type: "equip", targetItemId: content.id };
-              }
-            }
-          }
-        }
-      }
-      return { type: "equip", targetItemName: itemName };
-    }
-  }
-
-  if (upperAction.startsWith("ATTACK")) {
-    const match = actionLine.match(/ATTACK\s+(.+)/i);
-    if (match) {
-      const targetName = match[1].trim().toLowerCase();
-      const target = knowledge.visible.characters.find((c) =>
-        c.character.name.toLowerCase().includes(targetName)
-      );
-      if (target) {
-        return { type: "attack", targetCharacterId: target.character.id };
-      }
-    }
-  }
-
-  if (upperAction.startsWith("TALK")) {
-    const match = actionLine.match(/TALK\s+(\w+)\s+"([^"]+)"/i);
-    if (match) {
-      const targetName = match[1].trim().toLowerCase();
-      const message = match[2];
-      const target = knowledge.visible.characters.find((c) =>
-        c.character.name.toLowerCase().includes(targetName)
-      );
-      if (target) {
-        return {
-          type: "talk",
-          targetCharacterId: target.character.id,
-          message,
-        };
-      }
-    }
-  }
-
-  if (upperAction.startsWith("WAIT")) {
-    return { type: "wait" };
-  }
-
-  return null;
-}
-
-function parseActions(
-  response: string,
-  knowledge: CharacterKnowledge
-): Action[] {
-  const lines = response.trim().split("\n");
+): { actions: Action[]; errors: string[] } {
   const actions: Action[] = [];
+  const errors: string[] = [];
   let hasMoved = false;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
+  for (const jsonAction of jsonResponse.actions) {
+    const actionType = jsonAction.action.toLowerCase() as ValidActionType;
 
-    const upper = trimmed.toUpperCase();
-
-    if (upper.startsWith("MOVE") && hasMoved) {
+    // Validate action type
+    if (!VALID_ACTION_TYPES.includes(actionType)) {
+      errors.push(`Unknown action type: "${jsonAction.action}"`);
       continue;
     }
 
-    if (
-      upper.startsWith("MOVE") ||
-      upper.startsWith("SEARCH") ||
-      upper.startsWith("PICKUP") ||
-      upper.startsWith("DROP") ||
-      upper.startsWith("EQUIP") ||
-      upper.startsWith("ATTACK") ||
-      upper.startsWith("TALK") ||
-      upper.startsWith("WAIT")
-    ) {
-      const action = parseSingleAction(trimmed, knowledge);
-      if (action) {
-        actions.push(action);
-        if (action.type === "move") {
+    // Skip duplicate moves
+    if (actionType === "move" && hasMoved) {
+      errors.push("Duplicate MOVE ignored - only one move per turn");
+      continue;
+    }
+
+    let action: Action | null = null;
+
+    switch (actionType) {
+      case "move":
+        if (jsonAction.x !== null && jsonAction.y !== null) {
+          action = {
+            type: "move",
+            targetPosition: { x: jsonAction.x!, y: jsonAction.y! },
+          };
           hasMoved = true;
+        } else {
+          errors.push("MOVE requires x and y coordinates");
         }
-        if (
-          action.type === "attack" ||
-          action.type === "talk" ||
-          action.type === "wait"
-        ) {
-          break;
+        break;
+
+      case "attack":
+        if (jsonAction.target) {
+          const target = knowledge.visible.characters.find(
+            (c) =>
+              c.character.name.toLowerCase() ===
+                jsonAction.target!.toLowerCase() ||
+              c.character.name
+                .toLowerCase()
+                .includes(jsonAction.target!.toLowerCase())
+          );
+          if (target) {
+            action = { type: "attack", targetCharacterId: target.character.id };
+          } else {
+            errors.push(`ATTACK target "${jsonAction.target}" not visible`);
+          }
+        } else {
+          errors.push("ATTACK requires a target name");
         }
+        break;
+
+      case "talk":
+        if (jsonAction.target && jsonAction.message) {
+          const target = knowledge.visible.characters.find(
+            (c) =>
+              c.character.name.toLowerCase() ===
+                jsonAction.target!.toLowerCase() ||
+              c.character.name
+                .toLowerCase()
+                .includes(jsonAction.target!.toLowerCase())
+          );
+          if (target) {
+            action = {
+              type: "talk",
+              targetCharacterId: target.character.id,
+              message: jsonAction.message,
+            };
+          } else {
+            errors.push(`TALK target "${jsonAction.target}" not visible`);
+          }
+        } else {
+          errors.push("TALK requires a target name and message");
+        }
+        break;
+
+      case "search":
+        if (jsonAction.target) {
+          const container = knowledge.visible.items.find(
+            (i) =>
+              i.item.type === "container" &&
+              i.item.name
+                .toLowerCase()
+                .includes(jsonAction.target!.toLowerCase())
+          );
+          if (container) {
+            action = {
+              type: "search_container",
+              targetItemId: container.item.id,
+            };
+          } else {
+            action = {
+              type: "search_container",
+              targetItemName: jsonAction.target,
+            };
+          }
+        } else {
+          errors.push("SEARCH requires a container name");
+        }
+        break;
+
+      case "pickup":
+        if (jsonAction.target) {
+          let foundItem = false;
+          // Check containers first
+          for (const visibleTile of knowledge.visible.tiles) {
+            for (const item of visibleTile.items) {
+              if (
+                item.name
+                  .toLowerCase()
+                  .includes(jsonAction.target!.toLowerCase())
+              ) {
+                action = { type: "pick_up", targetItemId: item.id };
+                foundItem = true;
+                break;
+              }
+              if (item.type === "container" && item.contents) {
+                for (const content of item.contents) {
+                  if (
+                    content.name
+                      .toLowerCase()
+                      .includes(jsonAction.target!.toLowerCase())
+                  ) {
+                    action = { type: "pick_up", targetItemId: content.id };
+                    foundItem = true;
+                    break;
+                  }
+                }
+              }
+              if (foundItem) break;
+            }
+            if (foundItem) break;
+          }
+          if (!foundItem) {
+            action = { type: "pick_up", targetItemName: jsonAction.target };
+          }
+        } else {
+          errors.push("PICKUP requires an item name");
+        }
+        break;
+
+      case "drop":
+        if (jsonAction.target) {
+          const item = knowledge.status.inventory.find((i) =>
+            i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
+          );
+          if (item) {
+            action = { type: "drop", targetItemId: item.id };
+          } else {
+            action = { type: "drop", targetItemName: jsonAction.target };
+          }
+        } else {
+          errors.push("DROP requires an item name");
+        }
+        break;
+
+      case "equip":
+        if (jsonAction.target) {
+          const item = knowledge.status.inventory.find((i) =>
+            i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
+          );
+          if (item) {
+            action = { type: "equip", targetItemId: item.id };
+          } else {
+            action = { type: "equip", targetItemName: jsonAction.target };
+          }
+        } else {
+          errors.push("EQUIP requires an item name");
+        }
+        break;
+
+      case "place":
+        if (jsonAction.target) {
+          const item = knowledge.status.inventory.find(
+            (i) =>
+              i.name.toLowerCase().includes(jsonAction.target!.toLowerCase()) &&
+              i.type === "trap"
+          );
+          if (item) {
+            action = { type: "place", targetItemId: item.id };
+          } else {
+            action = { type: "place", targetItemName: jsonAction.target };
+          }
+        } else {
+          errors.push("PLACE requires a trap name");
+        }
+        break;
+
+      case "wait":
+        action = { type: "wait" };
+        break;
+    }
+
+    if (action) {
+      actions.push(action);
+      // Turn-ending actions
+      if (
+        action.type === "attack" ||
+        action.type === "talk" ||
+        action.type === "wait"
+      ) {
+        break;
       }
     }
   }
 
-  return actions;
+  return { actions, errors };
 }
 
 export async function getAgentDecision(
   world: World,
-  character: Character
+  character: Character,
+  lastFailure?: string
 ): Promise<{
   actions: Action[];
   reasoning: string;
   fullPrompt?: string;
   fullResponse?: string;
+  errors?: string[];
 }> {
   if (!openai) {
     return {
@@ -507,19 +643,24 @@ export async function getAgentDecision(
   }
 
   const knowledge = getCharacterKnowledge(world, character);
-  const situationDescription = formatKnowledge(world, character, knowledge);
+  let situationDescription = formatKnowledge(world, character, knowledge);
+
+  if (lastFailure) {
+    situationDescription = `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}\nYou must choose a DIFFERENT action. Check the "TILES YOU CAN MOVE TO" list carefully!\n\n${situationDescription}`;
+  }
 
   const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality. Act accordingly.
 
-AVAILABLE ACTIONS:
-- MOVE X Y : Move to a tile from "TILES YOU CAN MOVE TO" list
-- ATTACK name : Attack an adjacent character (ends turn)
-- TALK name "message" : Speak to character within 2 tiles (ends turn)
-- SEARCH container : Search a container at your position
-- PICKUP item : Pick up an item from searched container or ground
-- EQUIP item : Equip a weapon or clothing from inventory
-- DROP item : Drop an item from inventory
-- WAIT : End turn doing nothing
+AVAILABLE ACTIONS (use exact names in "action" field):
+- MOVE: Move to a tile. Requires x and y coordinates from "TILES YOU CAN MOVE TO" list.
+- ATTACK: Attack an adjacent character. Requires target (character name). Ends turn.
+- TALK: Speak to character within 2 tiles. Requires target and message. Ends turn.
+- SEARCH: Search a container at your position. Requires target (container name).
+- PICKUP: Pick up an item from searched container or ground. Requires target (item name).
+- EQUIP: Equip a weapon or clothing from inventory. Requires target (item name).
+- PLACE: Place a trap from your inventory onto your current tile. Requires target (trap name).
+- DROP: Drop an item from inventory. Requires target (item name).
+- WAIT: End turn doing nothing. No parameters needed.
 
 RULES:
 - "CAN ATTACK" next to a name = adjacent, you can attack them
@@ -527,64 +668,82 @@ RULES:
 - You can chain actions: MOVE first, then other actions
 - ATTACK or TALK ends your turn (but you can MOVE before either)
 - Items on corpses drop to the ground and can be picked up
+- TRAPS are invisible to enemies! Place them where enemies will walk, then attack when they're trapped
 
-RESPONSE FORMAT:
-1-2 sentences of reasoning based on your character's goals and personality.
-Then your action command(s), one per line.
+Respond with JSON containing:
+- reasoning: 1-2 sentences explaining your decision
+- actions: array of action objects
 
 EXAMPLES:
-"I need to flee - that hunter is too close!"
-MOVE 12 5
-
-"Enemy is adjacent. Time to strike!"
-ATTACK Kane
-
-"I should get closer and try diplomacy."
-MOVE 5 7
-TALK Razor "Let's work together against the real threat."
-
-"There's a knife on the ground from the corpse. I should arm myself."
-PICKUP Hunting Knife
-EQUIP Hunting Knife`;
+{"reasoning": "I need to flee!", "actions": [{"action": "MOVE", "x": 12, "y": 5}]}
+{"reasoning": "Enemy adjacent. Strike!", "actions": [{"action": "ATTACK", "target": "Kane"}]}
+{"reasoning": "Move and negotiate.", "actions": [{"action": "MOVE", "x": 5, "y": 7}, {"action": "TALK", "target": "Razor", "message": "Let's work together!"}]}
+{"reasoning": "Arm myself from corpse.", "actions": [{"action": "PICKUP", "target": "Hunting Knife"}, {"action": "EQUIP", "target": "Hunting Knife"}]}
+{"reasoning": "Set a trap for the hunter.", "actions": [{"action": "MOVE", "x": 8, "y": 5}, {"action": "PLACE", "target": "Bear Trap"}]}`;
 
   const userPrompt = `${character.personalityPrompt}
 
 CURRENT SITUATION:
 ${situationDescription}
 
-What do you do? Brief reasoning, then your actions.`;
+What do you do?`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-4o",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      max_completion_tokens: 300,
+      response_format: {
+        type: "json_schema",
+        json_schema: actionResponseSchema,
+      },
+      max_completion_tokens: 500,
       temperature: 0.7,
     });
 
-    const content = response.choices[0]?.message?.content ?? "";
-    const actions = parseActions(content, knowledge);
+    const content = response.choices[0]?.message?.content ?? "{}";
     const fullPrompt = `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`;
 
-    if (actions.length === 0) {
-      console.warn(`Failed to parse actions from: ${content}`);
+    let jsonResponse: JsonResponse;
+    try {
+      jsonResponse = JSON.parse(content) as JsonResponse;
+    } catch {
+      console.error("Failed to parse JSON response:", content);
       return {
         actions: [{ type: "wait" }],
-        reasoning: `(Failed to parse: ${content})`,
+        reasoning: `(Failed to parse JSON: ${content})`,
         fullPrompt,
         fullResponse: content,
+        errors: ["Invalid JSON response from AI"],
       };
     }
 
-    const reasoningMatch = content.match(/^(.+?)(?=\n[A-Z])/s);
-    const reasoning = reasoningMatch
-      ? reasoningMatch[1].trim()
-      : content.split("\n")[0];
+    const { actions, errors } = parseJsonActions(jsonResponse, knowledge);
 
-    return { actions, reasoning, fullPrompt, fullResponse: content };
+    if (errors.length > 0) {
+      console.warn("Action parsing errors:", errors);
+    }
+
+    if (actions.length === 0) {
+      console.warn(`No valid actions parsed from: ${content}`);
+      return {
+        actions: [{ type: "wait" }],
+        reasoning: jsonResponse.reasoning || "(No valid actions)",
+        fullPrompt,
+        fullResponse: content,
+        errors: errors.length > 0 ? errors : ["No valid actions in response"],
+      };
+    }
+
+    return {
+      actions,
+      reasoning: jsonResponse.reasoning,
+      fullPrompt,
+      fullResponse: content,
+      errors: errors.length > 0 ? errors : undefined,
+    };
   } catch (error) {
     console.error("Agent error:", error);
     return {
@@ -592,6 +751,7 @@ What do you do? Brief reasoning, then your actions.`;
       reasoning: `Error: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
+      errors: [error instanceof Error ? error.message : "Unknown error"],
     };
   }
 }

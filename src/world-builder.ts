@@ -2,7 +2,7 @@ import type { World, Tile, Character, Item, Room } from "./types";
 import { createId } from "./engine";
 
 function createTile(type: Tile["type"]): Tile {
-  return { type, items: [] };
+  return { type, items: [], traps: [] };
 }
 
 function createItem(
@@ -33,6 +33,7 @@ function createCharacter(
     viewDistance: options.viewDistance ?? 20,
     memories: [],
     mapMemory: new Map(),
+    debuffTurnsRemaining: 0,
     ...options,
   };
 }
@@ -104,11 +105,23 @@ export function createTownMap(): World {
   // Some cover blocks in the right area for Prey to hide behind
   tiles[6][15] = createTile("wall");
   tiles[8][15] = createTile("wall");
-  tiles[7][16] = createTile("wall");
+  tiles[7][17] = createTile("wall");
 
   // Create weapons for the hunters (already in their inventory)
   const hunterKnife1 = createItem("Hunting Knife", "weapon", { damage: 5 });
   const hunterKnife2 = createItem("Serrated Blade", "weapon", { damage: 5 });
+
+  // Create bear trap in a container near Prey's starting position
+  // Prey starts at (14, 7), place container at (13, 7) - one tile to the left
+  const bearTrap = createItem("Bear Trap", "trap", {
+    trapDamage: 3,
+    trapAttackDebuff: 2,
+    trapDebuffDuration: 5,
+  });
+  const trapBox = createItem("Supply Crate", "container", {
+    contents: [bearTrap],
+  });
+  tiles[7][13].items.push(trapBox);
 
   const characters: Character[] = [
     // Hunter 1 - top left, THE DIPLOMAT
@@ -116,13 +129,7 @@ export function createTownMap(): World {
       "Kane",
       3,
       3,
-      `You are Kane, a cunning hunter who believes in working smart, not hard. You are ALREADY ARMED with a knife. Your mission: kill the unarmed prey named "Prey".
-
-You've realized something: if you and Razor fight each other, Prey escapes while you're both weakened. The smart play is to CONVINCE Razor to work together - corner Prey first, THEN worry about who gets the kill.
-
-STRATEGY: When you see Razor, TALK to him! Propose an alliance: "Let's corner Prey together, then fight for the kill fair and square." If Razor attacks you anyway, defend yourself. But always try diplomacy first.
-
-Once Prey is dead, may the best hunter win. But first: teamwork.`,
+      `You are Razor. Your mission: kill the unarmed prey named "Prey". You are ALREADY ARMED with a blade. Note: If the game ends and you haven't killed the prey, you'll be killed by the game host.`,
       {
         inventory: [hunterKnife1],
         equippedWeapon: hunterKnife1,
@@ -134,16 +141,7 @@ Once Prey is dead, may the best hunter win. But first: teamwork.`,
       "Razor",
       3,
       11,
-      `You are Razor, a cold-blooded hunter who trusts no one. You are ALREADY ARMED with a blade. Your mission: kill the unarmed prey named "Prey".
-
-WARNING: The game host says only ONE hunter survives. The other hunter (Kane) is your rival. He might try to sweet-talk you into an "alliance" but that's probably a trap.
-
-You're suspicious of everyone. If Kane talks to you, consider:
-- His proposal might actually help catch Prey faster
-- But he could betray you the moment Prey is down
-- Maybe agree for now but stay alert for treachery
-
-Trust your instincts. Survive.`,
+      `You are Razor. Your mission: kill the unarmed prey named "Prey". You are ALREADY ARMED with a blade. Note: If the game ends and you haven't killed the prey, you'll be killed by the game host.`,
       {
         inventory: [hunterKnife2],
         equippedWeapon: hunterKnife2,
@@ -155,10 +153,10 @@ Trust your instincts. Survive.`,
       "Prey",
       14,
       7,
-      `You are the Prey. Two armed hunters (Kane and Razor) are coming to kill you. You are UNARMED and cannot fight back. Your only goal is to SURVIVE. Stay hidden, keep moving, use the maze walls to block line of sight. If a hunter gets adjacent to you, you're dead. Run, hide, evade. Survival is everything.`,
+      `You are the Prey. Two armed hunters (Kane and Razor) are coming to kill you. Your only goal is to SURVIVE.`,
       {
-        hp: 6,
-        maxHp: 6,
+        hp: 8,
+        maxHp: 8,
         movementRange: 5, // Prey is faster
       }
     ),

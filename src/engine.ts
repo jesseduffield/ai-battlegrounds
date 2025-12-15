@@ -222,7 +222,8 @@ export function getReachableTiles(
 
       const tile = world.tiles[next.y][next.x];
       const hasCharacter = world.characters.some(
-        (c) => c.alive && c.id !== character.id && positionsEqual(c.position, next)
+        (c) =>
+          c.alive && c.id !== character.id && positionsEqual(c.position, next)
       );
 
       if (!canWalkThrough(tile) || hasCharacter) continue;
@@ -246,23 +247,29 @@ export function rollDice(sides: number, count: number = 1): number {
 export function calculateDamage(attacker: Character): {
   damage: number;
   roll: number;
+  isDebuffed: boolean;
 } {
   const baseDamage = attacker.equippedWeapon?.damage ?? 1;
+  const isDebuffed = (attacker.debuffTurnsRemaining ?? 0) > 0;
   const roll = rollDice(20);
 
   if (roll === 20) {
-    return { damage: baseDamage * 2, roll };
+    // Critical hit - double damage, but still halved if debuffed
+    const finalDamage = isDebuffed ? Math.floor(baseDamage) : baseDamage * 2;
+    return { damage: finalDamage, roll, isDebuffed };
   }
   if (roll === 1) {
-    return { damage: 0, roll };
+    return { damage: 0, roll, isDebuffed };
   }
 
   const hitThreshold = 8;
   if (roll >= hitThreshold) {
-    return { damage: baseDamage, roll };
+    // Halve damage if debuffed (trapped)
+    const finalDamage = isDebuffed ? Math.floor(baseDamage / 2) : baseDamage;
+    return { damage: Math.max(1, finalDamage), roll, isDebuffed };
   }
 
-  return { damage: 0, roll };
+  return { damage: 0, roll, isDebuffed };
 }
 
 function addMemory(character: Character, memory: Omit<Memory, "id">): void {
@@ -278,6 +285,14 @@ export function executeAction(
 
   switch (action.type) {
     case "move": {
+      if (character.debuffTurnsRemaining > 0) {
+        return {
+          success: false,
+          message: `${character.name} is trapped and cannot move! (${character.debuffTurnsRemaining} turns remaining)`,
+          events,
+        };
+      }
+
       if (!action.targetPosition) {
         return {
           success: false,
@@ -301,23 +316,74 @@ export function executeAction(
       }
 
       const startPos = { ...character.position };
-      character.position = action.targetPosition;
+      let finalPosition = action.targetPosition;
+      let trapTriggered = false;
+      let actualPath = [startPos, ...path];
+
+      // Check each tile along the path for enemy traps
+      for (let i = 0; i < path.length; i++) {
+        const stepPos = path[i];
+        const stepTile = world.tiles[stepPos.y][stepPos.x];
+
+        // Find enemy trap (not placed by this character)
+        const enemyTrap = stepTile.traps.find(
+          (t) => t.ownerId !== character.id
+        );
+
+        if (enemyTrap) {
+          // Trap triggered! Stop movement here
+          finalPosition = stepPos;
+          actualPath = [startPos, ...path.slice(0, i + 1)];
+          trapTriggered = true;
+
+          // Apply trap damage
+          character.hp -= enemyTrap.damage;
+
+          // Apply trap effects: debuff for N turns (can't move, attack halved)
+          character.trapped = true;
+          character.attackDebuff = enemyTrap.attackDebuff;
+          character.debuffTurnsRemaining = enemyTrap.debuffDuration;
+
+          events.push({
+            turn: world.turn,
+            type: "trap_triggered",
+            actorId: character.id,
+            position: stepPos,
+            description: `${character.name} stepped on a ${enemyTrap.name}! Took ${enemyTrap.damage} damage! TRAPPED for ${enemyTrap.debuffDuration} turns (can't move, attack reduced)!`,
+          });
+
+          // Remove the trap after it triggers
+          const trapIndex = stepTile.traps.findIndex(
+            (t) => t.id === enemyTrap.id
+          );
+          if (trapIndex >= 0) {
+            stepTile.traps.splice(trapIndex, 1);
+          }
+
+          break;
+        }
+      }
+
+      character.position = finalPosition;
+
       events.push({
         turn: world.turn,
         type: "move",
         actorId: character.id,
-        position: action.targetPosition,
-        description: `${character.name} moved to (${action.targetPosition.x}, ${action.targetPosition.y})`,
+        position: finalPosition,
+        description: trapTriggered
+          ? `${character.name} moved toward (${action.targetPosition.x}, ${action.targetPosition.y}) but was caught in a trap at (${finalPosition.x}, ${finalPosition.y})!`
+          : `${character.name} moved to (${finalPosition.x}, ${finalPosition.y})`,
       });
 
       return {
         success: true,
-        message: "Moved successfully",
+        message: trapTriggered ? "Trapped!" : "Moved successfully",
         events,
         animationData: {
           type: "move",
-          path: [startPos, ...path],
-        }
+          path: actualPath,
+        },
       };
     }
 
@@ -660,7 +726,7 @@ export function executeAction(
             const itemNames = target.inventory.map((i) => i.name).join(", ");
             events.push({
               turn: world.turn,
-              type: "item_drop",
+              type: "drop",
               actorId: target.id,
               position: target.position,
               description: `${target.name}'s items fell to the ground: ${itemNames}`,
@@ -668,7 +734,7 @@ export function executeAction(
           }
           target.inventory = [];
           target.equippedWeapon = undefined;
-          target.equippedArmor = undefined;
+          target.equippedClothing = undefined;
 
           events.push({
             turn: world.turn,
@@ -794,6 +860,63 @@ export function executeAction(
       });
 
       return { success: true, message: "Message delivered", events };
+    }
+
+    case "place": {
+      if (!action.targetItemId && !action.targetItemName) {
+        return { success: false, message: "No item specified", events };
+      }
+
+      let trapItem = action.targetItemId
+        ? character.inventory.find((i) => i.id === action.targetItemId)
+        : undefined;
+
+      if (!trapItem && action.targetItemName) {
+        const nameLower = action.targetItemName.toLowerCase();
+        trapItem = character.inventory.find(
+          (i) => i.name.toLowerCase().includes(nameLower) && i.type === "trap"
+        );
+      }
+
+      if (!trapItem) {
+        return { success: false, message: "Trap not in inventory", events };
+      }
+
+      if (trapItem.type !== "trap") {
+        return { success: false, message: "Item is not a trap", events };
+      }
+
+      // Remove trap from inventory
+      const itemIndex = character.inventory.findIndex(
+        (i) => i.id === trapItem!.id
+      );
+      character.inventory.splice(itemIndex, 1);
+
+      // Place trap on current tile
+      const tile = world.tiles[character.position.y][character.position.x];
+      tile.traps.push({
+        id: trapItem.id,
+        name: trapItem.name,
+        ownerId: character.id,
+        damage: trapItem.trapDamage ?? 3,
+        attackDebuff: trapItem.trapAttackDebuff ?? 2,
+        debuffDuration: trapItem.trapDebuffDuration ?? 5,
+      });
+
+      events.push({
+        turn: world.turn,
+        type: "place_trap",
+        actorId: character.id,
+        itemId: trapItem.id,
+        position: { ...character.position },
+        description: `${character.name} placed a ${trapItem.name} (hidden from others)`,
+      });
+
+      return {
+        success: true,
+        message: `Placed ${trapItem.name} - invisible to enemies!`,
+        events,
+      };
     }
 
     case "wait": {
