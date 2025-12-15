@@ -39,96 +39,177 @@ function canWalkThrough(tile: Tile): boolean {
   return !hasContainer(tile);
 }
 
-// Basic ray trace - returns true if no blocking tiles between from and to
-function rayTrace(world: World, from: Position, to: Position): boolean {
-  const dx = Math.abs(to.x - from.x);
-  const dy = Math.abs(to.y - from.y);
-  const sx = from.x < to.x ? 1 : -1;
-  const sy = from.y < to.y ? 1 : -1;
-  let err = dx - dy;
-  let x = from.x;
-  let y = from.y;
+// Shadowcasting visibility algorithm
+// Produces smooth, natural-looking visibility without Bresenham artifacts
 
-  while (true) {
-    if (x === to.x && y === to.y) return true;
+type ShadowLine = { start: number; end: number }[];
 
-    if (x !== from.x || y !== from.y) {
-      if (x < 0 || x >= world.width || y < 0 || y >= world.height) return false;
-      if (isBlocking(world.tiles[y][x])) return false;
+function addShadow(shadows: ShadowLine, start: number, end: number): void {
+  // Find where this shadow fits in the list
+  let i = 0;
+  while (i < shadows.length && shadows[i].end < start) {
+    i++;
+  }
+
+  // Merge overlapping shadows
+  let newStart = start;
+  let newEnd = end;
+
+  while (i < shadows.length && shadows[i].start <= newEnd) {
+    newStart = Math.min(newStart, shadows[i].start);
+    newEnd = Math.max(newEnd, shadows[i].end);
+    shadows.splice(i, 1);
+  }
+
+  shadows.splice(i, 0, { start: newStart, end: newEnd });
+}
+
+function isInShadow(shadows: ShadowLine, start: number, end: number): boolean {
+  for (const shadow of shadows) {
+    if (shadow.start <= start && shadow.end >= end) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isFullyShadowed(shadows: ShadowLine): boolean {
+  return shadows.length === 1 && shadows[0].start <= 0 && shadows[0].end >= 1;
+}
+
+// Compute visible tiles using shadowcasting
+function computeVisibleTiles(
+  world: World,
+  origin: Position,
+  maxRange: number
+): Set<string> {
+  const visible = new Set<string>();
+  visible.add(`${origin.x},${origin.y}`);
+
+  // Process each octant
+  for (let octant = 0; octant < 8; octant++) {
+    castShadowsInOctant(world, origin, maxRange, octant, visible);
+  }
+
+  return visible;
+}
+
+// Transform coordinates based on octant
+function transformOctant(
+  octant: number,
+  row: number,
+  col: number
+): { dx: number; dy: number } {
+  switch (octant) {
+    case 0:
+      return { dx: col, dy: -row };
+    case 1:
+      return { dx: row, dy: -col };
+    case 2:
+      return { dx: row, dy: col };
+    case 3:
+      return { dx: col, dy: row };
+    case 4:
+      return { dx: -col, dy: row };
+    case 5:
+      return { dx: -row, dy: col };
+    case 6:
+      return { dx: -row, dy: -col };
+    case 7:
+      return { dx: -col, dy: -row };
+    default:
+      return { dx: 0, dy: 0 };
+  }
+}
+
+function castShadowsInOctant(
+  world: World,
+  origin: Position,
+  maxRange: number,
+  octant: number,
+  visible: Set<string>
+): void {
+  const shadows: ShadowLine = [];
+
+  for (let row = 1; row <= maxRange; row++) {
+    for (let col = 0; col <= row; col++) {
+      const { dx, dy } = transformOctant(octant, row, col);
+      const x = origin.x + dx;
+      const y = origin.y + dy;
+
+      // Check bounds
+      if (x < 0 || x >= world.width || y < 0 || y >= world.height) {
+        continue;
+      }
+
+      // Check distance
+      if (Math.sqrt(dx * dx + dy * dy) > maxRange) {
+        continue;
+      }
+
+      // Calculate the slope range for this tile
+      const tileStart = col / (row + 1);
+      const tileEnd = (col + 1) / row;
+
+      // Check if this tile is in shadow
+      if (isInShadow(shadows, tileStart, tileEnd)) {
+        continue;
+      }
+
+      // This tile is visible
+      visible.add(`${x},${y}`);
+
+      // If this tile blocks vision, add it to shadows
+      if (isBlocking(world.tiles[y][x])) {
+        addShadow(shadows, tileStart, tileEnd);
+      }
     }
 
-    const e2 = 2 * err;
-    if (e2 > -dy) {
-      err -= dy;
-      x += sx;
-    }
-    if (e2 < dx) {
-      err += dx;
-      y += sy;
+    // Early exit if fully shadowed
+    if (isFullyShadowed(shadows)) {
+      break;
     }
   }
 }
+
+// Cache for visible tiles - stores the computed set for reuse
+let cachedVisibleTiles: { origin: Position; range: number; tiles: Set<string> } | null = null;
 
 export function lineOfSight(
   world: World,
   from: Position,
   to: Position
 ): boolean {
-  // Check if destination is a wall
-  const destIsWall =
-    to.x >= 0 &&
-    to.x < world.width &&
-    to.y >= 0 &&
-    to.y < world.height &&
-    world.tiles[to.y][to.x].type === "wall";
-
-  if (!destIsWall) {
-    // For non-walls, standard ray trace
-    return rayTrace(world, from, to);
+  // Use shadowcasting for visibility
+  // For performance, we compute all visible tiles from 'from' and check if 'to' is in the set
+  
+  // Simple distance check first
+  const dist = distance(from, to);
+  const maxRange = 20; // Use a reasonable max range
+  if (dist > maxRange) {
+    return false;
   }
 
-  // For walls, check if we can see any FACE of the wall
-  // A wall face is visible if we can see the tile adjacent to that face
-
-  // Determine which faces are potentially visible based on viewer position
-  const facesToCheck: Position[] = [];
-
-  // If viewer is to the right of wall, check if east face is visible
-  // (trace to the tile east of the wall)
-  if (from.x > to.x && to.x + 1 < world.width) {
-    facesToCheck.push({ x: to.x + 1, y: to.y });
-  }
-  // If viewer is to the left of wall, check west face
-  if (from.x < to.x && to.x - 1 >= 0) {
-    facesToCheck.push({ x: to.x - 1, y: to.y });
-  }
-  // If viewer is below wall, check south face
-  if (from.y > to.y && to.y + 1 < world.height) {
-    facesToCheck.push({ x: to.x, y: to.y + 1 });
-  }
-  // If viewer is above wall, check north face
-  if (from.y < to.y && to.y - 1 >= 0) {
-    facesToCheck.push({ x: to.x, y: to.y - 1 });
+  // Check cache
+  if (
+    !cachedVisibleTiles ||
+    cachedVisibleTiles.origin.x !== from.x ||
+    cachedVisibleTiles.origin.y !== from.y ||
+    cachedVisibleTiles.range !== maxRange
+  ) {
+    cachedVisibleTiles = {
+      origin: { ...from },
+      range: maxRange,
+      tiles: computeVisibleTiles(world, from, maxRange),
+    };
   }
 
-  // The wall is visible if we can trace a ray to any of its exposed faces
-  // (the adjacent tile must not be a wall, and we must have LOS to it)
-  for (const facePos of facesToCheck) {
-    const faceTile = world.tiles[facePos.y][facePos.x];
-    // Only check faces that are exposed (adjacent to non-wall)
-    if (!isBlocking(faceTile)) {
-      if (rayTrace(world, from, facePos)) {
-        return true;
-      }
-    }
-  }
+  return cachedVisibleTiles.tiles.has(`${to.x},${to.y}`);
+}
 
-  // Also check if we're adjacent to the wall (always visible)
-  if (Math.abs(from.x - to.x) <= 1 && Math.abs(from.y - to.y) <= 1) {
-    return true;
-  }
-
-  return false;
+// Clear the visibility cache (call when world changes)
+export function clearVisibilityCache(): void {
+  cachedVisibleTiles = null;
 }
 
 export function getVisibleTiles(
@@ -141,41 +222,30 @@ export function getVisibleTiles(
     items: [],
   };
 
-  const { x: cx, y: cy } = character.position;
   const range = character.viewDistance;
+  
+  // Compute visible tiles using shadowcasting
+  const visibleSet = computeVisibleTiles(world, character.position, range);
 
-  for (
-    let y = Math.max(0, cy - range);
-    y <= Math.min(world.height - 1, cy + range);
-    y++
-  ) {
-    for (
-      let x = Math.max(0, cx - range);
-      x <= Math.min(world.width - 1, cx + range);
-      x++
-    ) {
-      const pos = { x, y };
-      if (
-        distance(character.position, pos) <= range &&
-        lineOfSight(world, character.position, pos)
-      ) {
-        const tile = world.tiles[y][x];
-        visible.tiles.push({ ...tile, position: pos });
+  // Iterate through visible tiles
+  for (const key of visibleSet) {
+    const [xStr, yStr] = key.split(",");
+    const x = parseInt(xStr, 10);
+    const y = parseInt(yStr, 10);
+    const pos = { x, y };
+    
+    const tile = world.tiles[y][x];
+    visible.tiles.push({ ...tile, position: pos });
 
-        for (const item of tile.items) {
-          visible.items.push({ item, position: pos });
-        }
-      }
+    for (const item of tile.items) {
+      visible.items.push({ item, position: pos });
     }
   }
 
   for (const other of world.characters) {
     if (other.id === character.id) continue;
     if (!other.alive) continue;
-    if (
-      distance(character.position, other.position) <= range &&
-      lineOfSight(world, character.position, other.position)
-    ) {
+    if (visibleSet.has(`${other.position.x},${other.position.y}`)) {
       visible.characters.push({ character: other, position: other.position });
     }
   }
