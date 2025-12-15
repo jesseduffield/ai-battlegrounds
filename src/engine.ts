@@ -172,44 +172,21 @@ function castShadowsInOctant(
   }
 }
 
-// Cache for visible tiles - stores the computed set for reuse
-let cachedVisibleTiles: { origin: Position; range: number; tiles: Set<string> } | null = null;
-
 export function lineOfSight(
   world: World,
   from: Position,
   to: Position
 ): boolean {
-  // Use shadowcasting for visibility
-  // For performance, we compute all visible tiles from 'from' and check if 'to' is in the set
-  
   // Simple distance check first
   const dist = distance(from, to);
-  const maxRange = 20; // Use a reasonable max range
+  const maxRange = 20;
   if (dist > maxRange) {
     return false;
   }
 
-  // Check cache
-  if (
-    !cachedVisibleTiles ||
-    cachedVisibleTiles.origin.x !== from.x ||
-    cachedVisibleTiles.origin.y !== from.y ||
-    cachedVisibleTiles.range !== maxRange
-  ) {
-    cachedVisibleTiles = {
-      origin: { ...from },
-      range: maxRange,
-      tiles: computeVisibleTiles(world, from, maxRange),
-    };
-  }
-
-  return cachedVisibleTiles.tiles.has(`${to.x},${to.y}`);
-}
-
-// Clear the visibility cache (call when world changes)
-export function clearVisibilityCache(): void {
-  cachedVisibleTiles = null;
+  // Use shadowcasting for visibility
+  const visibleSet = computeVisibleTiles(world, from, maxRange);
+  return visibleSet.has(`${to.x},${to.y}`);
 }
 
 export function getVisibleTiles(
@@ -223,7 +200,7 @@ export function getVisibleTiles(
   };
 
   const range = character.viewDistance;
-  
+
   // Compute visible tiles using shadowcasting
   const visibleSet = computeVisibleTiles(world, character.position, range);
 
@@ -233,7 +210,7 @@ export function getVisibleTiles(
     const x = parseInt(xStr, 10);
     const y = parseInt(yStr, 10);
     const pos = { x, y };
-    
+
     const tile = world.tiles[y][x];
     visible.tiles.push({ ...tile, position: pos });
 

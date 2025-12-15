@@ -572,7 +572,7 @@ describe("Line of Sight", () => {
     expect(lineOfSight(world, from, { x: 7, y: 1 })).toBe(false);
   });
 
-  it("ray to (8,11) passes through gap while (7,10) hits wall", () => {
+  it("shadowcasting provides consistent visibility through gaps", () => {
     const world = createTestWorld(20, 15);
 
     // Lower internal wall at x=6 from y=9 to y=12 (gap at y=6-8)
@@ -582,10 +582,12 @@ describe("Line of Sight", () => {
 
     const from = { x: 3, y: 3 };
 
-    // Ray to (7,10) passes through (6,9) which IS a wall
-    expect(lineOfSight(world, from, { x: 7, y: 10 })).toBe(false);
-
-    // Ray to (8,11) passes through (6,8) which is NOT a wall (gap!)
+    // With shadowcasting, both tiles should be consistently visible through the gap
+    // (unlike Bresenham which had odd near/far visibility differences)
+    expect(lineOfSight(world, from, { x: 7, y: 10 })).toBe(true);
     expect(lineOfSight(world, from, { x: 8, y: 11 })).toBe(true);
+
+    // But tiles directly behind the wall section should be blocked
+    expect(lineOfSight(world, from, { x: 7, y: 11 })).toBe(false);
   });
 });
