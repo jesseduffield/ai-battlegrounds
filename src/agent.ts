@@ -173,7 +173,8 @@ function generateAsciiMap(world: World, character: Character): string {
 function formatKnowledge(
   world: World,
   character: Character,
-  knowledge: CharacterKnowledge
+  knowledge: CharacterKnowledge,
+  hasMoved: boolean = false
 ): string {
   const lines: string[] = [];
 
@@ -269,130 +270,95 @@ function formatKnowledge(
   }
 
   const reachable = getReachableTiles(world, character);
-
-  // Find tiles that are adjacent to enemies (for MOVE+ATTACK combo)
-  const tilesAdjacentToEnemies: { tile: Position; enemy: string }[] = [];
-  for (const tile of reachable) {
-    for (const { character: enemy, position: enemyPos } of livingEnemies) {
-      if (manhattanDistance(tile, enemyPos) === 1) {
-        tilesAdjacentToEnemies.push({ tile, enemy: enemy.name });
-      }
-    }
-  }
-
-  if (tilesAdjacentToEnemies.length > 0) {
-    lines.push(`\n=== ATTACK OPPORTUNITIES (move here then attack!) ===`);
-    for (const { tile, enemy } of tilesAdjacentToEnemies) {
-      lines.push(`  MOVE ${tile.x} ${tile.y} then ATTACK ${enemy}`);
-    }
-  }
-
   const pos = knowledge.status.position;
 
-  lines.push(`\n⚠️ TILES YOU CAN MOVE TO (ONLY these - pick one!):`);
-  if (reachable.length > 0) {
-    const sortedReachable = [...reachable].sort((a, b) => {
-      const distA = Math.abs(a.x - pos.x) + Math.abs(a.y - pos.y);
-      const distB = Math.abs(b.x - pos.x) + Math.abs(b.y - pos.y);
-      return distB - distA;
-    });
-    const farthest = sortedReachable.slice(0, 10);
-    const reachableStr = farthest.map((p) => `(${p.x},${p.y})`).join(", ");
-    lines.push(`Farthest: ${reachableStr}`);
-    if (sortedReachable.length > 10) {
-      lines.push(`(and ${sortedReachable.length - 10} closer tiles...)`);
+  if (!hasMoved) {
+    lines.push(`\n=== TILES YOU CAN MOVE TO ===`);
+    if (reachable.length > 0) {
+      const reachableStr = reachable.map((p) => `(${p.x},${p.y})`).join(", ");
+      lines.push(reachableStr);
+    } else {
+      lines.push(`None - you are blocked!`);
     }
-  } else {
-    lines.push(`None - you are blocked!`);
   }
 
-  const containers = knowledge.visible.items.filter(
-    (i) => i.item.type === "container"
-  );
-  const groundItems = knowledge.visible.items.filter(
-    (i) => i.item.type !== "container"
-  );
-  const isAdjacent = (p: { x: number; y: number }) =>
-    Math.abs(p.x - pos.x) <= 1 &&
-    Math.abs(p.y - pos.y) <= 1 &&
-    (p.x !== pos.x || p.y !== pos.y);
+  // Show all known objects
+  const allItems = knowledge.visible.items;
+  if (allItems.length > 0) {
+    lines.push(`\n=== KNOWN OBJECTS ===`);
+    for (const { item, position } of allItems) {
+      const dist = manhattanDistance(pos, position);
+      const adjacent = dist === 1;
+      let desc = `${item.name} at ${formatPosition(position)}`;
 
-  const adjacentContainers = containers.filter((c) => isAdjacent(c.position));
-  const farContainers = containers.filter((c) => !isAdjacent(c.position));
-
-  if (adjacentContainers.length > 0) {
-    lines.push(
-      `\n=== ADJACENT CONTAINERS (you can SEARCH now, no MOVE needed!) ===`
-    );
-    for (const { item } of adjacentContainers) {
-      if (item.searched) {
-        if (item.contents && item.contents.length > 0) {
-          lines.push(`${item.name} (searched) - still contains:`);
-          for (const content of item.contents) {
-            lines.push(`  -> ${content.name} - you can PICKUP this!`);
+      if (item.type === "container") {
+        if (item.searched) {
+          if (item.contents && item.contents.length > 0) {
+            desc += ` [searched, contains: ${item.contents
+              .map((c) => c.name)
+              .join(", ")}]`;
+          } else {
+            desc += ` [searched, empty]`;
           }
         } else {
-          lines.push(`${item.name} (searched) - EMPTY, nothing left`);
+          desc += ` [not searched]`;
         }
+        if (adjacent) desc += ` - ADJACENT, can SEARCH`;
+      } else if (item.type === "weapon") {
+        desc += ` [weapon, ${item.damage} damage]`;
+        if (adjacent) desc += ` - ADJACENT, can PICKUP`;
+      } else if (item.type === "trap") {
+        desc += ` [trap]`;
+        if (adjacent) desc += ` - ADJACENT, can PICKUP`;
       } else {
-        lines.push(`${item.name} - NOT SEARCHED! Use: SEARCH "${item.name}"`);
+        if (adjacent) desc += ` - ADJACENT`;
       }
-    }
-  }
 
-  if (farContainers.length > 0 && !hasWeapon) {
-    lines.push(`\n=== CONTAINERS FURTHER AWAY ===`);
-    for (const { item, position } of farContainers) {
-      if (item.searched) {
-        if (item.contents && item.contents.length > 0) {
-          lines.push(
-            `${item.name} at ${formatPosition(
-              position
-            )} contains: ${item.contents.map((c) => c.name).join(", ")}`
-          );
-        } else {
-          lines.push(`${item.name} at ${formatPosition(position)} - EMPTY`);
-        }
-      } else {
-        lines.push(
-          `${item.name} at ${formatPosition(
-            position
-          )} - not searched (move adjacent to search)`
-        );
-      }
-    }
-  }
-
-  if (groundItems.length > 0) {
-    const weaponsOnGround = groundItems.filter((i) => i.item.type === "weapon");
-    const otherItems = groundItems.filter((i) => i.item.type !== "weapon");
-
-    if (weaponsOnGround.length > 0 && !hasWeapon) {
-      lines.push(`\n⚠️ WEAPONS ON THE GROUND (you're unarmed - grab one!):`);
-      for (const { item, position } of weaponsOnGround) {
-        lines.push(
-          `  -> ${item.name} at ${formatPosition(position)} - PICKUP this!`
-        );
-      }
-    } else if (weaponsOnGround.length > 0) {
-      lines.push(`\nWeapons on the ground:`);
-      for (const { item, position } of weaponsOnGround) {
-        lines.push(`  - ${item.name} at ${formatPosition(position)}`);
-      }
-    }
-
-    if (otherItems.length > 0) {
-      lines.push(`\nOther items on the ground:`);
-      for (const { item, position } of otherItems) {
-        lines.push(`  - ${item.name} at ${formatPosition(position)}`);
-      }
+      lines.push(`  - ${desc}`);
     }
   }
 
   lines.push(`\n=== YOUR MEMORIES ===`);
-  const recentMemories = knowledge.memories.slice(-15);
-  if (recentMemories.length > 0) {
-    for (const memory of recentMemories) {
+
+  // Separate important memories from "saw X" observations
+  const importantTypes = [
+    "attacked",
+    "was_attacked",
+    "character_died",
+    "witnessed_attack",
+    "picked_up_item",
+    "searched_container",
+    "talked_to",
+    "heard_about",
+    "trap_triggered",
+    "placed_trap",
+  ];
+
+  const importantMemories = knowledge.memories.filter((m) =>
+    importantTypes.includes(m.type)
+  );
+
+  // For "saw" memories, only keep the most recent sighting of each thing
+  const sawMemories = knowledge.memories.filter(
+    (m) => m.type === "saw_character" || m.type === "saw_item"
+  );
+  const latestSawByTarget = new Map<string, (typeof sawMemories)[0]>();
+  for (const mem of sawMemories) {
+    const key = mem.characterId ?? mem.itemId ?? mem.description;
+    const existing = latestSawByTarget.get(key);
+    if (!existing || mem.turn > existing.turn) {
+      latestSawByTarget.set(key, mem);
+    }
+  }
+  const dedupedSawMemories = Array.from(latestSawByTarget.values());
+
+  // Combine: all important memories + deduplicated saw memories, sorted by turn
+  const allMemories = [...importantMemories, ...dedupedSawMemories].sort(
+    (a, b) => a.turn - b.turn
+  );
+
+  if (allMemories.length > 0) {
+    for (const memory of allMemories) {
       const source = memory.source === "witnessed" ? "" : ` (told by someone)`;
       lines.push(`  [Turn ${memory.turn}] ${memory.description}${source}`);
     }
@@ -404,9 +370,13 @@ function formatKnowledge(
   lines.push(`You automatically look around at the start of your turn.`);
   lines.push(``);
   lines.push(`Chain these actions in one turn:`);
-  lines.push(
-    `  - MOVE x y : Move to position (max ${character.movementRange} tiles)`
-  );
+  if (hasMoved) {
+    lines.push(`  - [UNAVAILABLE] MOVE - YOU ALREADY MOVED. DO NOT USE.`);
+  } else {
+    lines.push(
+      `  - MOVE x y : Move to position (max ${character.movementRange} tiles)`
+    );
+  }
   lines.push(`  - SEARCH container_name : Search adjacent container`);
   lines.push(
     `  - PICKUP item_name : Take item from adjacent searched container`
@@ -447,69 +417,59 @@ const VALID_ACTION_TYPES = [
 
 type ValidActionType = (typeof VALID_ACTION_TYPES)[number];
 
-// JSON Schema for structured output
+// JSON Schema for structured output - ONE action per response
 // Note: strict mode requires all properties in 'required', so we use nullable types
 const actionResponseSchema = {
-  name: "game_actions",
+  name: "game_action",
   strict: true,
   schema: {
     type: "object",
     properties: {
       reasoning: {
-        type: "string",
+        type: ["string", "null"],
         description:
-          "MAX 15 words. Raw emotional inner monologue like talking to yourself. No coordinates.",
+          "FIRST action: short emotional thought. Follow-up actions: null.",
       },
-      actions: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: [
-                "MOVE",
-                "ATTACK",
-                "TALK",
-                "SEARCH",
-                "PICKUP",
-                "DROP",
-                "EQUIP",
-                "PLACE",
-                "WAIT",
-              ],
-              description: "The action type",
-            },
-            x: {
-              type: ["number", "null"],
-              description: "X coordinate for MOVE (null if not applicable)",
-            },
-            y: {
-              type: ["number", "null"],
-              description: "Y coordinate for MOVE (null if not applicable)",
-            },
-            target: {
-              type: ["string", "null"],
-              description:
-                "Target name for ATTACK, TALK, SEARCH, PICKUP, DROP, EQUIP, PLACE (null if not applicable)",
-            },
-            message: {
-              type: ["string", "null"],
-              description: "Message content for TALK (null if not applicable)",
-            },
-          },
-          required: ["action", "x", "y", "target", "message"],
-          additionalProperties: false,
-        },
-        description: "List of actions to perform this turn",
+      action: {
+        type: "string",
+        enum: [
+          "MOVE",
+          "ATTACK",
+          "TALK",
+          "SEARCH",
+          "PICKUP",
+          "DROP",
+          "EQUIP",
+          "PLACE",
+          "WAIT",
+        ],
+        description: "The action type",
+      },
+      x: {
+        type: ["number", "null"],
+        description: "X coordinate for MOVE or PLACE (null if not applicable)",
+      },
+      y: {
+        type: ["number", "null"],
+        description: "Y coordinate for MOVE or PLACE (null if not applicable)",
+      },
+      target: {
+        type: ["string", "null"],
+        description:
+          "Target name for ATTACK, TALK, SEARCH, PICKUP, DROP, EQUIP, PLACE, or MOVE-to-target (null if not applicable)",
+      },
+      message: {
+        type: ["string", "null"],
+        description: "Message content for TALK (null if not applicable)",
       },
     },
-    required: ["reasoning", "actions"],
+    required: ["reasoning", "action", "x", "y", "target", "message"],
     additionalProperties: false,
   },
 };
 
-type JsonAction = {
+type JsonResponse = {
+  reasoning: string | null;
   action: string;
   x: number | null;
   y: number | null;
@@ -517,357 +477,287 @@ type JsonAction = {
   message: string | null;
 };
 
-type JsonResponse = {
-  reasoning: string;
-  actions: JsonAction[];
-};
-
-function parseJsonActions(
+function parseJsonAction(
   jsonResponse: JsonResponse,
   knowledge: CharacterKnowledge,
   world: World,
   character: Character
-): { actions: Action[]; errors: string[] } {
-  const actions: Action[] = [];
-  const errors: string[] = [];
-  let hasMoved = false;
-  let hasSearched = false;
-  const pendingTrapPickups: { id: string; name: string }[] = [];
+): { action: Action | null; error: string | null } {
   const reachableTiles = getReachableTiles(world, character);
+  const actionType = jsonResponse.action.toLowerCase() as ValidActionType;
 
-  for (const jsonAction of jsonResponse.actions) {
-    const actionType = jsonAction.action.toLowerCase() as ValidActionType;
-
-    // Validate action type
-    if (!VALID_ACTION_TYPES.includes(actionType)) {
-      errors.push(`Unknown action type: "${jsonAction.action}"`);
-      continue;
-    }
-
-    // Skip duplicate moves
-    if (actionType === "move" && hasMoved) {
-      errors.push("Duplicate MOVE ignored - only one move per turn");
-      continue;
-    }
-
-    let action: Action | null = null;
-
-    switch (actionType) {
-      case "move":
-        if (jsonAction.x !== null && jsonAction.y !== null) {
-          action = {
-            type: "move",
-            targetPosition: { x: jsonAction.x!, y: jsonAction.y! },
-          };
-          hasMoved = true;
-        } else if (jsonAction.target) {
-          // MOVE TO [target name] - find best tile toward target
-          const targetPos = findTargetPosition(
-            jsonAction.target,
-            knowledge,
-            character
-          );
-          if (targetPos) {
-            const bestTile = findBestTileToward(
-              targetPos,
-              reachableTiles,
-              character.position
-            );
-            if (bestTile) {
-              action = {
-                type: "move",
-                targetPosition: bestTile,
-              };
-              hasMoved = true;
-            } else {
-              errors.push(
-                `MOVE TO "${jsonAction.target}" failed: no reachable tiles`
-              );
-            }
-          } else {
-            errors.push(
-              `MOVE TO "${jsonAction.target}" failed: target not found or not remembered`
-            );
-          }
-        } else {
-          errors.push("MOVE requires x,y coordinates OR a target name");
-        }
-        break;
-
-      case "attack":
-        if (jsonAction.target) {
-          const target = knowledge.visible.characters.find(
-            (c) =>
-              c.character.name.toLowerCase() ===
-                jsonAction.target!.toLowerCase() ||
-              c.character.name
-                .toLowerCase()
-                .includes(jsonAction.target!.toLowerCase())
-          );
-          if (target) {
-            action = { type: "attack", targetCharacterId: target.character.id };
-          } else {
-            errors.push(`ATTACK target "${jsonAction.target}" not visible`);
-          }
-        } else {
-          errors.push("ATTACK requires a target name");
-        }
-        break;
-
-      case "talk":
-        if (jsonAction.target && jsonAction.message) {
-          const target = knowledge.visible.characters.find(
-            (c) =>
-              c.character.name.toLowerCase() ===
-                jsonAction.target!.toLowerCase() ||
-              c.character.name
-                .toLowerCase()
-                .includes(jsonAction.target!.toLowerCase())
-          );
-          if (target) {
-            action = {
-              type: "talk",
-              targetCharacterId: target.character.id,
-              message: jsonAction.message,
-            };
-          } else {
-            errors.push(`TALK target "${jsonAction.target}" not visible`);
-          }
-        } else {
-          errors.push("TALK requires a target name and message");
-        }
-        break;
-
-      case "search":
-        if (jsonAction.target) {
-          const container = knowledge.visible.items.find(
-            (i) =>
-              i.item.type === "container" &&
-              i.item.name
-                .toLowerCase()
-                .includes(jsonAction.target!.toLowerCase())
-          );
-          if (container) {
-            action = {
-              type: "search_container",
-              targetItemId: container.item.id,
-            };
-            hasSearched = true;
-          } else {
-            action = {
-              type: "search_container",
-              targetItemName: jsonAction.target,
-            };
-            hasSearched = true;
-          }
-        } else {
-          errors.push("SEARCH requires a container name");
-        }
-        break;
-
-      case "pickup":
-        if (jsonAction.target) {
-          let foundItem: { id: string; name: string; type: string } | null =
-            null;
-          // Check containers first
-          for (const visibleTile of knowledge.visible.tiles) {
-            for (const item of visibleTile.items) {
-              if (
-                item.name
-                  .toLowerCase()
-                  .includes(jsonAction.target!.toLowerCase())
-              ) {
-                foundItem = { id: item.id, name: item.name, type: item.type };
-                action = { type: "pick_up", targetItemId: item.id };
-                break;
-              }
-              if (item.type === "container" && item.contents) {
-                for (const content of item.contents) {
-                  if (
-                    content.name
-                      .toLowerCase()
-                      .includes(jsonAction.target!.toLowerCase())
-                  ) {
-                    foundItem = {
-                      id: content.id,
-                      name: content.name,
-                      type: content.type,
-                    };
-                    action = { type: "pick_up", targetItemId: content.id };
-                    break;
-                  }
-                }
-              }
-              if (foundItem) break;
-            }
-            if (foundItem) break;
-          }
-          if (!foundItem) {
-            action = { type: "pick_up", targetItemName: jsonAction.target };
-          } else if (foundItem.type === "trap") {
-            pendingTrapPickups.push({ id: foundItem.id, name: foundItem.name });
-          }
-        } else {
-          errors.push("PICKUP requires an item name");
-        }
-        break;
-
-      case "drop":
-        if (jsonAction.target) {
-          const item = knowledge.status.inventory.find((i) =>
-            i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
-          );
-          if (item) {
-            action = { type: "drop", targetItemId: item.id };
-          } else {
-            action = { type: "drop", targetItemName: jsonAction.target };
-          }
-        } else {
-          errors.push("DROP requires an item name");
-        }
-        break;
-
-      case "equip":
-        if (jsonAction.target) {
-          const item = knowledge.status.inventory.find((i) =>
-            i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
-          );
-          if (item) {
-            action = { type: "equip", targetItemId: item.id };
-          } else {
-            action = { type: "equip", targetItemName: jsonAction.target };
-          }
-        } else {
-          errors.push("EQUIP requires an item name");
-        }
-        break;
-
-      case "place":
-        if (hasSearched) {
-          errors.push(
-            `PLACE failed: Cannot place a trap after searching a container in the same turn.`
-          );
-        } else if (!jsonAction.target) {
-          errors.push("PLACE requires a trap name");
-        } else if (jsonAction.x === null || jsonAction.y === null) {
-          errors.push("PLACE requires x,y coordinates for adjacent tile");
-        } else {
-          const trapsInInv = knowledge.status.inventory.filter(
-            (i) => i.type === "trap"
-          );
-          const allTraps = [
-            ...trapsInInv.map((i) => ({ id: i.id, name: i.name })),
-            ...pendingTrapPickups,
-          ];
-          if (allTraps.length === 0) {
-            errors.push(
-              `PLACE failed: No traps in inventory! You already placed it or never picked one up.`
-            );
-          } else {
-            const item = allTraps.find((i) =>
-              i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
-            );
-            if (item) {
-              action = {
-                type: "place",
-                targetItemId: item.id,
-                targetPosition: { x: jsonAction.x, y: jsonAction.y },
-              };
-            } else {
-              errors.push(
-                `PLACE failed: "${
-                  jsonAction.target
-                }" not found in inventory. You have: ${allTraps
-                  .map((t) => t.name)
-                  .join(", ")}`
-              );
-            }
-          }
-        }
-        break;
-
-      case "wait":
-        action = { type: "wait" };
-        break;
-    }
-
-    if (action) {
-      actions.push(action);
-      // Turn-ending actions
-      if (
-        action.type === "attack" ||
-        action.type === "talk" ||
-        action.type === "wait"
-      ) {
-        break;
-      }
-    }
+  // Validate action type
+  if (!VALID_ACTION_TYPES.includes(actionType)) {
+    return { action: null, error: `Unknown action type: "${jsonResponse.action}"` };
   }
 
-  return { actions, errors };
+  switch (actionType) {
+    case "move":
+      if (jsonResponse.x !== null && jsonResponse.y !== null) {
+        return {
+          action: { type: "move", targetPosition: { x: jsonResponse.x, y: jsonResponse.y } },
+          error: null,
+        };
+      } else if (jsonResponse.target) {
+        const targetPos = findTargetPosition(jsonResponse.target, knowledge, character);
+        if (targetPos) {
+          const bestTile = findBestTileToward(targetPos, reachableTiles, character.position);
+          if (bestTile) {
+            return { action: { type: "move", targetPosition: bestTile }, error: null };
+          } else {
+            return { action: null, error: `MOVE TO "${jsonResponse.target}" failed: no reachable tiles` };
+          }
+        } else {
+          return { action: null, error: `MOVE TO "${jsonResponse.target}" failed: target not found` };
+        }
+      } else {
+        return { action: null, error: "MOVE requires x,y coordinates OR a target name" };
+      }
+
+    case "attack":
+      if (jsonResponse.target) {
+        const target = knowledge.visible.characters.find(
+          (c) =>
+            c.character.name.toLowerCase() === jsonResponse.target!.toLowerCase() ||
+            c.character.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+        );
+        if (target) {
+          return { action: { type: "attack", targetCharacterId: target.character.id }, error: null };
+        } else {
+          return { action: null, error: `ATTACK target "${jsonResponse.target}" not visible` };
+        }
+      } else {
+        return { action: null, error: "ATTACK requires a target name" };
+      }
+
+    case "talk":
+      if (jsonResponse.target && jsonResponse.message) {
+        const target = knowledge.visible.characters.find(
+          (c) =>
+            c.character.name.toLowerCase() === jsonResponse.target!.toLowerCase() ||
+            c.character.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+        );
+        if (target) {
+          return {
+            action: { type: "talk", targetCharacterId: target.character.id, message: jsonResponse.message },
+            error: null,
+          };
+        } else {
+          return { action: null, error: `TALK target "${jsonResponse.target}" not visible` };
+        }
+      } else {
+        return { action: null, error: "TALK requires a target name and message" };
+      }
+
+    case "search":
+      if (jsonResponse.target) {
+        const container = knowledge.visible.items.find(
+          (i) =>
+            i.item.type === "container" &&
+            i.item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+        );
+        if (container) {
+          return { action: { type: "search_container", targetItemId: container.item.id }, error: null };
+        } else {
+          return { action: { type: "search_container", targetItemName: jsonResponse.target }, error: null };
+        }
+      } else {
+        return { action: null, error: "SEARCH requires a container name" };
+      }
+
+    case "pickup":
+      if (jsonResponse.target) {
+        for (const visibleTile of knowledge.visible.tiles) {
+          for (const item of visibleTile.items) {
+            if (item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())) {
+              return { action: { type: "pick_up", targetItemId: item.id }, error: null };
+            }
+            if (item.type === "container" && item.contents) {
+              for (const content of item.contents) {
+                if (content.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())) {
+                  return { action: { type: "pick_up", targetItemId: content.id }, error: null };
+                }
+              }
+            }
+          }
+        }
+        return { action: { type: "pick_up", targetItemName: jsonResponse.target }, error: null };
+      } else {
+        return { action: null, error: "PICKUP requires an item name" };
+      }
+
+    case "drop":
+      if (jsonResponse.target) {
+        const item = knowledge.status.inventory.find((i) =>
+          i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+        );
+        if (item) {
+          return { action: { type: "drop", targetItemId: item.id }, error: null };
+        } else {
+          return { action: { type: "drop", targetItemName: jsonResponse.target }, error: null };
+        }
+      } else {
+        return { action: null, error: "DROP requires an item name" };
+      }
+
+    case "equip":
+      if (jsonResponse.target) {
+        const item = knowledge.status.inventory.find((i) =>
+          i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+        );
+        if (item) {
+          return { action: { type: "equip", targetItemId: item.id }, error: null };
+        } else {
+          return { action: { type: "equip", targetItemName: jsonResponse.target }, error: null };
+        }
+      } else {
+        return { action: null, error: "EQUIP requires an item name" };
+      }
+
+    case "place":
+      if (!jsonResponse.target) {
+        return { action: null, error: "PLACE requires a trap name" };
+      } else if (jsonResponse.x === null || jsonResponse.y === null) {
+        return { action: null, error: "PLACE requires x,y coordinates for adjacent tile" };
+      } else {
+        const trapsInInv = knowledge.status.inventory.filter((i) => i.type === "trap");
+        if (trapsInInv.length === 0) {
+          return { action: null, error: "PLACE failed: No traps in inventory!" };
+        }
+        const item = trapsInInv.find((i) =>
+          i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+        );
+        if (item) {
+          return {
+            action: { type: "place", targetItemId: item.id, targetPosition: { x: jsonResponse.x, y: jsonResponse.y } },
+            error: null,
+          };
+        } else {
+          return { action: null, error: `PLACE failed: "${jsonResponse.target}" not in inventory` };
+        }
+      }
+
+    case "wait":
+      return { action: { type: "wait" }, error: null };
+
+    default:
+      return { action: null, error: `Unknown action: ${actionType}` };
+  }
 }
+
+export type TurnHistoryEntry = {
+  response: string; // The raw JSON response from the AI
+  result: string; // What happened (e.g., "Moved to (3,7)", "Search found: Bear Trap")
+};
 
 export async function getAgentDecision(
   world: World,
   character: Character,
+  turnHistory: TurnHistoryEntry[] = [],
   lastFailure?: string
 ): Promise<{
-  actions: Action[];
-  reasoning: string;
+  action: Action;
+  reasoning: string | null;
   fullPrompt?: string;
   fullResponse?: string;
-  errors?: string[];
+  error?: string;
 }> {
   if (!openai) {
     return {
-      actions: [{ type: "wait" }],
+      action: { type: "wait" },
       reasoning: "AI agent not initialized (no API key)",
     };
   }
 
   const knowledge = getCharacterKnowledge(world, character);
-  let situationDescription = formatKnowledge(world, character, knowledge);
 
-  if (lastFailure) {
-    situationDescription = `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}
+  // Check what's already been done this turn
+  const hasMoved = turnHistory.some((h) => {
+    try {
+      const r = JSON.parse(h.response);
+      return r.action === "MOVE" && h.result.includes("successfully");
+    } catch {
+      return false;
+    }
+  });
 
-TIP: Use MOVE with a target name (e.g., {"action": "MOVE", "target": "Hunting Knife"}) to auto-navigate!
+  let situationDescription = formatKnowledge(world, character, knowledge, hasMoved);
 
-${situationDescription}`;
+  // Add turn history at the top
+  if (turnHistory.length > 0) {
+    let historySection = `=== WHAT YOU'VE DONE THIS TURN ===\n`;
+    for (let i = 0; i < turnHistory.length; i++) {
+      try {
+        const parsed = JSON.parse(turnHistory[i].response);
+        const thought = parsed.reasoning ? `You thought: "${parsed.reasoning}"` : "";
+        const action = parsed.action || "unknown";
+        let actionDesc = action;
+        if (action === "MOVE" && parsed.x !== null && parsed.y !== null) {
+          actionDesc = `MOVED to (${parsed.x}, ${parsed.y})`;
+        } else if (parsed.target) {
+          actionDesc = `${action} ${parsed.target}`;
+        }
+        historySection += `${i + 1}. ${thought ? thought + " → " : ""}${actionDesc}\n`;
+        historySection += `   Result: ${turnHistory[i].result}\n\n`;
+      } catch {
+        historySection += `${i + 1}. ${turnHistory[i].response}\n`;
+        historySection += `   Result: ${turnHistory[i].result}\n\n`;
+      }
+    }
+    if (hasMoved) {
+      historySection += `⛔ MOVE UNAVAILABLE. Choose: SEARCH, PICKUP, EQUIP, ATTACK, TALK, or WAIT.\n`;
+      historySection += `⚠️ SET "reasoning": null (this is a follow-up action)\n`;
+    } else {
+      historySection += `You can still take more actions before ending your turn.\n`;
+      historySection += `⚠️ SET "reasoning": null for follow-up actions.\n`;
+    }
+    situationDescription = historySection + `\n` + situationDescription;
   }
 
-  const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality. Act accordingly.
+  if (lastFailure) {
+    situationDescription = `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}\n\n` + situationDescription;
+  }
 
-AVAILABLE ACTIONS (use exact names in "action" field):
-- MOVE: Two options:
-  1. MOVE with x,y coordinates from "TILES YOU CAN MOVE TO" list
-  2. MOVE with target name (e.g., "Hunting Knife", "Supply Crate", "Kane") - auto-navigates toward it!
-- ATTACK: Attack an adjacent character. Requires target (character name). Works unarmed (punch)! Ends turn.
+  // Build available actions list with crossed-out unavailable ones
+  const moveAction = hasMoved
+    ? "- [UNAVAILABLE] MOVE - YOU ALREADY MOVED THIS TURN. DO NOT USE MOVE."
+    : "- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates)";
+
+  // Add continuity guidance if there's history
+  const continuityNote = turnHistory.length > 0
+    ? `\nThis is a FOLLOW-UP action. You MUST set "reasoning": null.`
+    : "";
+
+  const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
+
+ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide your next action.${continuityNote}
+
+AVAILABLE ACTIONS:
+${moveAction}
+- ATTACK: Attack ADJACENT character (1 tile away). Requires target name. Ends turn.
 - TALK: Speak to character within 2 tiles. Requires target and message. Ends turn.
-- SEARCH: Search an adjacent container (can't walk on container tiles). Requires target (container name).
-- PICKUP: Pick up item from adjacent searched container or ground. Requires target (item name).
-- EQUIP: Equip a weapon or clothing from inventory. Requires target (item name).
-- PLACE: Place trap on ADJACENT tile. Requires x, y (adjacent coords) and target (trap name). Warning: you can trigger your own trap!
-- DROP: Drop an item from inventory. Requires target (item name).
-- WAIT: End turn doing nothing. No parameters needed.
+- SEARCH: Search adjacent container. Requires target (container name).
+- PICKUP: Pick up item from adjacent container/ground. Requires target (item name).
+- EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
+- PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
+- DROP: Drop item from inventory. Requires target (item name).
+- WAIT: End turn. No parameters.
 
-RULES:
-- MOVE: Use target name (easier) OR pick from "TILES YOU CAN MOVE TO" list
-- "CAN ATTACK" = adjacent, attack now. "CAN TALK" = within 2 tiles.
-- You can chain: MOVE → then SEARCH/PICKUP/EQUIP/PLACE → then ATTACK or TALK
-- ATTACK or TALK ends your turn
-- TRAPS are invisible to enemies! Place them in chokepoints
-
-Respond with JSON containing:
-- reasoning: MAX 15 WORDS. Raw inner monologue - emotional, human, like talking to yourself. NO coordinates, NO "target/mission/objective".
-- actions: array of action objects
+Respond with JSON:
+- reasoning: FIRST action = short thought. Follow-ups = null.
+- action: The action type
+- x, y: Coordinates if needed (null otherwise)
+- target: Target name if needed (null otherwise)
+- message: Message for TALK (null otherwise)
 
 EXAMPLES:
-{"reasoning": "Gotta run. NOW.", "actions": [{"action": "MOVE", "x": 12, "y": 5}]}
-{"reasoning": "Need that knife!", "actions": [{"action": "MOVE", "target": "Hunting Knife"}, {"action": "PICKUP", "target": "Hunting Knife"}]}
-{"reasoning": "Die.", "actions": [{"action": "ATTACK", "target": "Kane"}]}
-{"reasoning": "A knife! Hell yes.", "actions": [{"action": "PICKUP", "target": "Knife"}, {"action": "EQUIP", "target": "Knife"}]}
-{"reasoning": "Walk into my trap, idiots.", "actions": [{"action": "PLACE", "x": 5, "y": 6, "target": "Bear Trap"}]}`;
+${hasMoved
+  ? `{"reasoning": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
+{"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
+{"reasoning": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
+  : `{"reasoning": "Close the gap!", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
+{"reasoning": "Die!", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
+{"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`}`;
 
   const userPrompt = `${character.personalityPrompt}
 
@@ -900,51 +790,51 @@ What do you do?`;
     } catch {
       console.error("Failed to parse JSON response:", content);
       return {
-        actions: [{ type: "wait" }],
+        action: { type: "wait" },
         reasoning: `(Failed to parse JSON: ${content})`,
         fullPrompt,
         fullResponse: content,
-        errors: ["Invalid JSON response from AI"],
+        error: "Invalid JSON response from AI",
       };
     }
 
-    const { actions, errors } = parseJsonActions(
+    const { action, error } = parseJsonAction(
       jsonResponse,
       knowledge,
       world,
       character
     );
 
-    if (errors.length > 0) {
-      console.warn("Action parsing errors:", errors);
+    if (error) {
+      console.warn("Action parsing error:", error);
     }
 
-    if (actions.length === 0) {
-      console.warn(`No valid actions parsed from: ${content}`);
+    if (!action) {
+      console.warn(`No valid action parsed from: ${content}`);
       return {
-        actions: [{ type: "wait" }],
-        reasoning: jsonResponse.reasoning || "(No valid actions)",
+        action: { type: "wait" },
+        reasoning: jsonResponse.reasoning || "(No valid action)",
         fullPrompt,
         fullResponse: content,
-        errors: errors.length > 0 ? errors : ["No valid actions in response"],
+        error: error || "No valid action in response",
       };
     }
 
     return {
-      actions,
+      action,
       reasoning: jsonResponse.reasoning,
       fullPrompt,
       fullResponse: content,
-      errors: errors.length > 0 ? errors : undefined,
+      error: error || undefined,
     };
-  } catch (error) {
-    console.error("Agent error:", error);
+  } catch (err) {
+    console.error("Agent error:", err);
     return {
-      actions: [{ type: "wait" }],
+      action: { type: "wait" },
       reasoning: `Error: ${
-        error instanceof Error ? error.message : "Unknown error"
+        err instanceof Error ? err.message : "Unknown error"
       }`,
-      errors: [error instanceof Error ? error.message : "Unknown error"],
+      error: err instanceof Error ? err.message : "Unknown error",
     };
   }
 }

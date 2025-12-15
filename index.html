@@ -255,7 +255,7 @@
       margin-top: 1rem;
       position: relative;
       animation: fade-in 0.3s ease-out;
-      min-height: 80px;
+      height: 140px;
       visibility: hidden;
     }
 
@@ -309,6 +309,26 @@
       margin-bottom: 0.5rem;
       padding-bottom: 0.5rem;
       border-bottom: 1px solid var(--border-color);
+    }
+
+    .thought-mode {
+      font-size: 1.5rem;
+    }
+
+    .thought-bubble.thinking {
+      border-style: dashed;
+    }
+
+    .thought-bubble.speaking {
+      border-style: solid;
+    }
+
+    .thought-bubble.speaking .thought-content {
+      color: #fff;
+    }
+
+    .thought-bubble.thinking .thought-content {
+      color: #aaa;
     }
 
     .thought-avatar {
@@ -483,6 +503,7 @@
       <canvas id="game-canvas" width="640" height="480"></canvas>
       <div class="thought-bubble placeholder" id="thought-bubble">
         <div class="thought-header">
+          <span class="thought-mode" id="thought-mode">💭</span>
           <div class="thought-avatar" id="thought-avatar"></div>
           <span class="thought-name" id="thought-name">Character</span>
         </div>

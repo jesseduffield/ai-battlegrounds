@@ -81,8 +81,8 @@ export function createTownMap(): World {
     tiles[y][6] = createTile("wall");
   }
 
-  // Wall 3: x=12, from y=2 to y=6 (upper section)
-  for (let y = 2; y <= 6; y++) {
+  // Wall 3: x=12, from y=4 to y=6 (upper section)
+  for (let y = 4; y <= 6; y++) {
     tiles[y][12] = createTile("wall");
   }
 

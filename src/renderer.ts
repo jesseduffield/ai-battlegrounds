@@ -264,23 +264,26 @@ function drawCharacter(
   ctx.stroke();
 
   if (character.alive) {
+    // Body - scaled to fit in tile
     ctx.beginPath();
-    ctx.moveTo(px, py + 4);
-    ctx.lineTo(px, py + 14);
-    ctx.moveTo(px - 6, py + 8);
-    ctx.lineTo(px + 6, py + 8);
-    ctx.moveTo(px, py + 14);
-    ctx.lineTo(px - 4, py + 20);
-    ctx.moveTo(px, py + 14);
-    ctx.lineTo(px + 4, py + 20);
+    ctx.moveTo(px, py + 2);
+    ctx.lineTo(px, py + 10);
+    // Arms
+    ctx.moveTo(px - 5, py + 5);
+    ctx.lineTo(px + 5, py + 5);
+    // Legs
+    ctx.moveTo(px, py + 10);
+    ctx.lineTo(px - 3, py + 14);
+    ctx.moveTo(px, py + 10);
+    ctx.lineTo(px + 3, py + 14);
     ctx.strokeStyle = colors.body;
     ctx.lineWidth = 2;
     ctx.stroke();
 
     if (character.equippedWeapon) {
       ctx.beginPath();
-      ctx.moveTo(px + 6, py + 8);
-      ctx.lineTo(px + 14, py + 2);
+      ctx.moveTo(px + 5, py + 5);
+      ctx.lineTo(px + 11, py);
       ctx.strokeStyle = colors.accent;
       ctx.lineWidth = 3;
       ctx.stroke();
@@ -289,10 +292,40 @@ function drawCharacter(
       ctx.stroke();
     }
   } else {
-    ctx.font = "16px serif";
+    ctx.font = "14px serif";
     ctx.fillStyle = "#888";
     ctx.textAlign = "center";
-    ctx.fillText("†", px, py + 16);
+    ctx.fillText("†", px, py + 10);
+  }
+
+  // Draw health bar above character
+  if (character.alive) {
+    const barWidth = 20;
+    const barHeight = 4;
+    const barX = px - barWidth / 2;
+    const barY = py - 18;
+    const healthPercent = character.hp / character.maxHp;
+
+    // Background (dark red)
+    ctx.fillStyle = "#4a1a1a";
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+
+    // Health fill (green to yellow to red based on health)
+    let healthColor: string;
+    if (healthPercent > 0.6) {
+      healthColor = "#4ade80"; // Green
+    } else if (healthPercent > 0.3) {
+      healthColor = "#facc15"; // Yellow
+    } else {
+      healthColor = "#ef4444"; // Red
+    }
+    ctx.fillStyle = healthColor;
+    ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
+
+    // Border
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barWidth, barHeight);
   }
 
   ctx.font = "bold 10px JetBrains Mono, monospace";
@@ -353,9 +386,30 @@ function drawItem(
   ctx.fillStyle = color;
 
   if (item.type === "container") {
-    ctx.fillRect(px, py, 12, 10);
+    // Center the container in the tile
+    const centerX = x * TILE_SIZE + TILE_SIZE / 2;
+    const centerY = y * TILE_SIZE + TILE_SIZE / 2;
+    const boxWidth = 20;
+    const boxHeight = 14;
+
+    // Main body
+    ctx.fillRect(
+      centerX - boxWidth / 2,
+      centerY - boxHeight / 2 + 2,
+      boxWidth,
+      boxHeight
+    );
+    // Lid highlight
     ctx.fillStyle = item.searched ? "#4a3a2a" : "#8a6a4a";
-    ctx.fillRect(px + 1, py + 1, 10, 3);
+    ctx.fillRect(
+      centerX - boxWidth / 2 + 1,
+      centerY - boxHeight / 2 + 2,
+      boxWidth - 2,
+      4
+    );
+    // Clasp
+    ctx.fillStyle = "#aa8855";
+    ctx.fillRect(centerX - 2, centerY - boxHeight / 2 + 5, 4, 3);
   } else if (item.type === "weapon") {
     ctx.beginPath();
     ctx.moveTo(px + 2, py + 10);
@@ -413,23 +467,6 @@ export function render(
     ctx.stroke();
   }
 
-  // Darken tiles not in line of sight
-  if (visibleTiles && highlightedCharacter) {
-    for (let y = 0; y < world.height; y++) {
-      for (let x = 0; x < world.width; x++) {
-        const isCharPos =
-          highlightedCharacter.position.x === x &&
-          highlightedCharacter.position.y === y;
-        if (!visibleSet.has(`${x},${y}`) && !isCharPos) {
-          const px = x * TILE_SIZE;
-          const py = y * TILE_SIZE;
-          ctx.fillStyle = COLORS.notVisible;
-          ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-        }
-      }
-    }
-  }
-
   if (reachableTiles) {
     for (const pos of reachableTiles) {
       const px = pos.x * TILE_SIZE;
@@ -467,6 +504,23 @@ export function render(
     drawCharacter(ctx, character, index);
   });
 
+  // Darken tiles not in line of sight (after everything is drawn)
+  if (visibleSet.size > 0 && highlightedCharacter) {
+    for (let y = 0; y < world.height; y++) {
+      for (let x = 0; x < world.width; x++) {
+        const isCharPos =
+          highlightedCharacter.position.x === x &&
+          highlightedCharacter.position.y === y;
+        if (!visibleSet.has(`${x},${y}`) && !isCharPos) {
+          const px = x * TILE_SIZE;
+          const py = y * TILE_SIZE;
+          ctx.fillStyle = COLORS.notVisible;
+          ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+  }
+
   for (const room of world.rooms) {
     ctx.font = "10px JetBrains Mono, monospace";
     ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
@@ -475,6 +529,30 @@ export function render(
       ((room.bounds.minX + room.bounds.maxX) / 2 + 0.5) * TILE_SIZE;
     const centerY = (room.bounds.minY + 1.5) * TILE_SIZE;
     ctx.fillText(room.name, centerX, centerY);
+  }
+
+  // Draw coordinate labels
+  ctx.font = "9px JetBrains Mono, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Top row (X coordinates)
+  for (let x = 0; x < world.width; x++) {
+    const px = x * TILE_SIZE + TILE_SIZE / 2;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(x * TILE_SIZE, 0, TILE_SIZE, 12);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+    ctx.fillText(String(x), px, 6);
+  }
+
+  // Left column (Y coordinates)
+  ctx.textAlign = "right";
+  for (let y = 0; y < world.height; y++) {
+    const py = y * TILE_SIZE + TILE_SIZE / 2;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(0, y * TILE_SIZE, 14, TILE_SIZE);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+    ctx.fillText(String(y), 12, py);
   }
 
   for (const ft of floatingTexts) {

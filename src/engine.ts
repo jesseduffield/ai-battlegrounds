@@ -620,7 +620,16 @@ export function executeAction(
         description: `${character.name} picked up ${item.name}`,
       });
 
-      return { success: true, message: `Picked up ${item.name}`, events };
+      return {
+        success: true,
+        message: `Picked up ${item.name}`,
+        events,
+        animationData: {
+          type: "pickup",
+          targetPosition: character.position,
+          itemName: item.name,
+        },
+      };
     }
 
     case "drop": {
@@ -1025,6 +1034,15 @@ export function executeAction(
         debuffDuration: trapItem.trapDebuffDuration ?? 5,
       });
 
+      addMemory(character, {
+        turn: world.turn,
+        type: "placed_trap",
+        description: `Placed ${trapItem.name} at (${action.targetPosition.x}, ${action.targetPosition.y})`,
+        location: { ...action.targetPosition },
+        itemId: trapItem.id,
+        source: "witnessed",
+      });
+
       events.push({
         turn: world.turn,
         type: "place_trap",
@@ -1038,6 +1056,11 @@ export function executeAction(
         success: true,
         message: `Placed ${trapItem.name} - invisible to enemies!`,
         events,
+        animationData: {
+          type: "place",
+          targetPosition: character.position,
+          itemName: trapItem.name,
+        },
       };
     }
 

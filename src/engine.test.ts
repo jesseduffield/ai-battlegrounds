@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { findPath, executeAction, createId } from "./engine";
-import type { World, Character, Tile, Position } from "./types";
+import type { World, Character, Tile } from "./types";
 
 function createTestWorld(width: number, height: number): World {
   const tiles: Tile[][] = [];

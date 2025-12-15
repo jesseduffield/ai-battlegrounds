@@ -80,7 +80,8 @@ export type MemoryType =
   | "witnessed_attack"
   | "character_died"
   | "heard_about"
-  | "talked_to";
+  | "talked_to"
+  | "placed_trap";
 
 export type Memory = {
   id: string;
@@ -135,11 +136,12 @@ export type ActionResult = {
   message: string;
   events: GameEvent[];
   animationData?: {
-    type: "move" | "attack";
+    type: "move" | "attack" | "pickup" | "place";
     path?: Position[];
     targetPosition?: Position;
     damage?: number;
     missed?: boolean;
+    itemName?: string;
   };
 };
 

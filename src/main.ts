@@ -8,14 +8,8 @@ import {
   updateAnimations,
   isAnimating,
   setThinkingCharacter,
-  TILE_SIZE,
 } from "./renderer";
-import {
-  executeAction,
-  getCharacterKnowledge,
-  getReachableTiles,
-  getVisibleTiles,
-} from "./engine";
+import { executeAction, getReachableTiles, getVisibleTiles } from "./engine";
 import { getAgentDecision, initializeAgent } from "./agent";
 import type { World, Character, GameEvent, Position } from "./types";
 
@@ -29,7 +23,7 @@ type WorldSnapshot = {
 type AgentDecisionLog = {
   turn: number;
   character: string;
-  reasoning: string;
+  reasoning: string | null;
   fullPrompt: string;
   fullResponse: string;
   sequence: number;
@@ -108,14 +102,21 @@ function getCurrentCharacter(): Character | null {
 const CHARACTER_COLORS: Record<string, string> = {
   Kane: "#e63946",
   Razor: "#4361ee",
-  Prey: "#2a9d8f",
+  Alice: "#e67e22",
+  Bob: "#1abc9c",
+  Charlie: "#e74c3c",
 };
 
-function showThoughtBubble(character: Character, reasoning: string): void {
+function showThoughtBubble(
+  character: Character,
+  text: string,
+  mode: "thinking" | "speaking" = "thinking"
+): void {
   const bubble = document.getElementById("thought-bubble");
   const avatar = document.getElementById("thought-avatar");
   const name = document.getElementById("thought-name");
   const content = document.getElementById("thought-content");
+  const modeIndicator = document.getElementById("thought-mode");
 
   if (bubble && avatar && name && content) {
     const color = CHARACTER_COLORS[character.name] ?? "#e8c84a";
@@ -123,7 +124,19 @@ function showThoughtBubble(character: Character, reasoning: string): void {
     avatar.textContent = character.name.charAt(0);
     name.textContent = character.name;
     name.style.color = color;
-    content.textContent = `"${reasoning}"`;
+
+    if (mode === "thinking") {
+      content.innerHTML = `<em>"${text}"</em>`;
+      if (modeIndicator) modeIndicator.textContent = "💭";
+      bubble.classList.remove("speaking");
+      bubble.classList.add("thinking");
+    } else {
+      content.innerHTML = `<strong>"${text}"</strong>`;
+      if (modeIndicator) modeIndicator.textContent = "💬";
+      bubble.classList.remove("thinking");
+      bubble.classList.add("speaking");
+    }
+
     bubble.classList.remove("placeholder");
     bubble.classList.add("visible");
     bubble.style.borderColor = color;
@@ -263,7 +276,7 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
 
 function addReasoningEntry(
   character: Character,
-  reasoning: string,
+  reasoning: string | null,
   fullPrompt?: string,
   fullResponse?: string,
   errors?: string[]
@@ -587,140 +600,181 @@ async function processTurn(): Promise<void> {
     let equippedThisTurn = false;
     let movedThisTurn = false;
     let turnEnded = false;
-    let maxIterations = 5;
+    let actionsThisTurn = 0;
+    const maxActionsPerTurn = 3;
     let lastFailure: string | undefined = undefined;
+    const turnHistory: { response: string; result: string }[] = [];
 
-    while (!turnEnded && current.alive && maxIterations > 0) {
-      maxIterations--;
-
+    while (!turnEnded && current.alive && actionsThisTurn < maxActionsPerTurn) {
       setThinkingCharacter(current.id);
       renderWorld();
 
-      const { actions, reasoning, fullPrompt, fullResponse, errors } =
-        await getAgentDecision(world, current, lastFailure);
+      const { action, reasoning, fullPrompt, fullResponse, error } =
+        await getAgentDecision(world, current, turnHistory, lastFailure);
 
       setThinkingCharacter(null);
 
-      // Show what the character is thinking and pause
-      showThoughtBubble(current, reasoning);
-      addReasoningEntry(current, reasoning, fullPrompt, fullResponse, errors);
-      await delay(2500); // Let player read the thought
-      hideThoughtBubble();
+      // Show what the character is thinking and pause (only if reasoning provided)
+      if (reasoning) {
+        showThoughtBubble(current, reasoning);
+        await delay(2500); // Let player read the thought
+        hideThoughtBubble();
+      }
+      addReasoningEntry(
+        current,
+        reasoning,
+        fullPrompt,
+        fullResponse,
+        error ? [error] : undefined
+      );
 
       lastFailure = undefined;
-      let searchedContainer = false;
-      let moveFailedThisIteration = false;
 
-      for (const action of actions) {
-        if (action.type === "move" && movedThisTurn) {
-          continue;
+      // Prevent duplicate moves in one turn
+      if (action.type === "move" && movedThisTurn) {
+        lastFailure = "Already moved this turn - choose a different action";
+        if (fullResponse) {
+          turnHistory.push({
+            response: fullResponse,
+            result: "REJECTED: Already moved this turn",
+          });
         }
+        const evt: GameEvent = {
+          turn: world.turn,
+          type: "move",
+          actorId: current.id,
+          description: `${current.name}: move (REJECTED - already moved this turn)`,
+        };
+        allEvents.push(evt);
+        addLogEntry(evt);
+        continue;
+      }
 
-        if (action.type === "equip") {
-          equippedThisTurn = true;
-        }
+      // Prevent attack after equip
+      if (action.type === "equip") {
+        equippedThisTurn = true;
+      }
+      if (action.type === "attack" && equippedThisTurn) {
+        const evt: GameEvent = {
+          turn: world.turn,
+          type: "move",
+          actorId: current.id,
+          description: `${current.name} cannot attack after equipping this turn`,
+        };
+        allEvents.push(evt);
+        addLogEntry(evt);
+        turnEnded = true;
+        continue;
+      }
 
-        if (action.type === "attack" && equippedThisTurn) {
-          const evt: GameEvent = {
-            turn: world.turn,
-            type: "move",
-            actorId: current.id,
-            description: `${current.name} cannot attack after equipping this turn`,
-          };
-          allEvents.push(evt);
-          addLogEntry(evt);
-          continue;
-        }
+      const result = executeAction(world, current, action);
 
-        const result = executeAction(world, current, action);
-
-        if (result.animationData) {
-          if (
-            result.animationData.type === "move" &&
-            result.animationData.path
-          ) {
-            startAnimationLoop();
-            await startMoveAnimation(current.id, result.animationData.path);
-          } else if (
-            result.animationData.type === "attack" &&
-            result.animationData.targetPosition
-          ) {
-            const pos = result.animationData.targetPosition;
-            if (result.animationData.missed) {
-              addFloatingText(pos.x, pos.y, "MISS", "#ffffff");
-            } else {
-              addFloatingText(
-                pos.x,
-                pos.y,
-                `-${result.animationData.damage}`,
-                "#ff4444"
-              );
-            }
-            await waitForAnimations();
-          }
-        }
-
-        for (const event of result.events) {
-          allEvents.push(event);
-          addLogEntry(event);
-        }
-
-        if (result.events.length === 0 && action.type !== "look_around") {
-          const evt: GameEvent = {
-            turn: world.turn,
-            type: "move",
-            actorId: current.id,
-            description: `${current.name}: ${action.type}${
-              result.success ? "" : ` (failed: ${result.message})`
-            }`,
-          };
-          allEvents.push(evt);
-          addLogEntry(evt);
-        }
-
-        if (action.type === "move") {
-          if (result.success) {
-            movedThisTurn = true;
-            // If character got trapped during move, break and re-query AI
-            if (current.trapped) {
-              break;
-            }
-          } else {
-            moveFailedThisIteration = true;
-            lastFailure = `MOVE to (${action.targetPosition?.x}, ${action.targetPosition?.y}) failed: ${result.message}. Pick a tile from the TILES YOU CAN MOVE TO list!`;
-            break;
-          }
-        }
-
-        if (action.type === "search_container" && result.success) {
-          searchedContainer = true;
-        }
-
-        if (
-          action.type === "attack" ||
-          action.type === "talk" ||
-          action.type === "wait"
+      // Handle animations
+      if (result.animationData) {
+        if (result.animationData.type === "move" && result.animationData.path) {
+          startAnimationLoop();
+          await startMoveAnimation(current.id, result.animationData.path);
+        } else if (
+          result.animationData.type === "attack" &&
+          result.animationData.targetPosition
         ) {
-          turnEnded = true;
-          break;
+          const pos = result.animationData.targetPosition;
+          if (result.animationData.missed) {
+            addFloatingText(pos.x, pos.y, "MISS", "#ffffff");
+          } else {
+            addFloatingText(
+              pos.x,
+              pos.y,
+              `-${result.animationData.damage}`,
+              "#ff4444"
+            );
+          }
+          await waitForAnimations();
+        } else if (
+          result.animationData.type === "pickup" &&
+          result.animationData.targetPosition
+        ) {
+          const pos = result.animationData.targetPosition;
+          const itemName = result.animationData.itemName ?? "item";
+          addFloatingText(pos.x, pos.y, `+${itemName}`, "#4ade80");
+          await waitForAnimations();
+        } else if (
+          result.animationData.type === "place" &&
+          result.animationData.targetPosition
+        ) {
+          const pos = result.animationData.targetPosition;
+          const itemName = result.animationData.itemName ?? "item";
+          addFloatingText(pos.x, pos.y, `-${itemName}`, "#facc15");
+          await waitForAnimations();
         }
+      }
 
-        if (!current.alive) {
-          turnEnded = true;
-          break;
+      // Log events
+      for (const event of result.events) {
+        allEvents.push(event);
+        addLogEntry(event);
+      }
+
+      if (result.events.length === 0 && action.type !== "look_around") {
+        const evt: GameEvent = {
+          turn: world.turn,
+          type: "move",
+          actorId: current.id,
+          description: `${current.name}: ${action.type}${
+            result.success ? "" : ` (failed: ${result.message})`
+          }`,
+        };
+        allEvents.push(evt);
+        addLogEntry(evt);
+      }
+
+      // Track actions for conversation history
+      if (action.type !== "look_around" && fullResponse) {
+        const resultDesc = result.success
+          ? result.message
+          : `FAILED: ${result.message}`;
+        turnHistory.push({
+          response: fullResponse,
+          result: resultDesc,
+        });
+        if (result.success) {
+          actionsThisTurn++;
         }
       }
 
-      if (moveFailedThisIteration) {
-        continue;
+      // Handle action results
+      if (action.type === "move") {
+        if (result.success) {
+          movedThisTurn = true;
+          // If character got trapped, let them continue with next action
+          if (current.trapped) {
+            turnHistory[turnHistory.length - 1].result += " (TRAPPED!)";
+            continue;
+          }
+        } else {
+          lastFailure = `MOVE failed: ${result.message}`;
+          continue;
+        }
       }
 
-      // If character got trapped during move, re-query AI for next action
-      if (current.trapped && movedThisTurn) {
-        continue;
+      // Show speech bubble for talk actions
+      if (action.type === "talk" && result.success && action.message) {
+        showThoughtBubble(current, action.message, "speaking");
+        await delay(3000);
+        hideThoughtBubble();
       }
 
-      if (!searchedContainer) {
+      // Turn-ending actions
+      if (
+        action.type === "attack" ||
+        action.type === "talk" ||
+        action.type === "wait"
+      ) {
+        turnEnded = true;
+      }
+
+      // Character died
+      if (!current.alive) {
         turnEnded = true;
       }
     }
@@ -963,23 +1017,14 @@ function getCompactLogText(): string {
 
       try {
         const response = JSON.parse(d.fullResponse);
-        if (response.actions && Array.isArray(response.actions)) {
-          const actionStrs = response.actions.map(
-            (a: {
-              action: string;
-              x?: number;
-              y?: number;
-              target?: string;
-              message?: string;
-            }) => {
-              let str = a.action;
-              if (a.x !== null && a.y !== null) str += ` (${a.x}, ${a.y})`;
-              if (a.target) str += ` "${a.target}"`;
-              if (a.message) str += `: "${a.message}"`;
-              return str;
-            }
-          );
-          lines.push(`  Actions: ${actionStrs.join(", ")}`);
+        // Handle single action (new format)
+        if (response.action) {
+          let str = response.action;
+          if (response.x !== null && response.y !== null)
+            str += ` (${response.x}, ${response.y})`;
+          if (response.target) str += ` "${response.target}"`;
+          if (response.message) str += `: "${response.message}"`;
+          lines.push(`  Action: ${str}`);
         }
       } catch {
         lines.push(`  Response: ${d.fullResponse.substring(0, 200)}...`);
