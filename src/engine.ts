@@ -28,10 +28,15 @@ function isBlocking(tile: Tile): boolean {
   return tile.type === "wall";
 }
 
+function hasContainer(tile: Tile): boolean {
+  return tile.items.some((item) => item.type === "container");
+}
+
 function canWalkThrough(tile: Tile): boolean {
-  return (
-    tile.type === "ground" || tile.type === "door" || tile.type === "grass"
-  );
+  if (tile.type !== "ground" && tile.type !== "door" && tile.type !== "grass") {
+    return false;
+  }
+  return !hasContainer(tile);
 }
 
 export function lineOfSight(
@@ -156,13 +161,20 @@ export function findPath(
       if (visited.has(key)) continue;
 
       const tile = world.tiles[next.y][next.x];
+      
+      // Containers are never walkable, even as destination
+      if (hasContainer(tile)) continue;
+      
+      // Walls/non-ground tiles block unless they're the destination
+      if (!canWalkThrough(tile)) {
+        if (!positionsEqual(next, to)) continue;
+      }
+      
+      // Characters block unless they're the destination (for attacking)
       const hasCharacter = world.characters.some(
         (c) => c.alive && positionsEqual(c.position, next)
       );
-
-      if (!canWalkThrough(tile) || hasCharacter) {
-        if (!positionsEqual(next, to)) continue;
-      }
+      if (hasCharacter && !positionsEqual(next, to)) continue;
 
       const newPath = [...current.path, next];
 
@@ -443,15 +455,36 @@ export function executeAction(
         return { success: false, message: "No container specified", events };
       }
 
-      const tile = world.tiles[character.position.y][character.position.x];
-      const container = tile.items.find(
-        (i) => i.id === action.targetItemId && i.type === "container"
-      );
+      const adjacentPositions = [
+        character.position,
+        { x: character.position.x - 1, y: character.position.y },
+        { x: character.position.x + 1, y: character.position.y },
+        { x: character.position.x, y: character.position.y - 1 },
+        { x: character.position.x, y: character.position.y + 1 },
+      ];
 
-      if (!container) {
+      let container: Item | undefined;
+      let containerPosition: Position | undefined;
+
+      for (const pos of adjacentPositions) {
+        if (pos.x < 0 || pos.x >= world.width || pos.y < 0 || pos.y >= world.height) {
+          continue;
+        }
+        const tile = world.tiles[pos.y][pos.x];
+        const found = tile.items.find(
+          (i) => i.id === action.targetItemId && i.type === "container"
+        );
+        if (found) {
+          container = found;
+          containerPosition = pos;
+          break;
+        }
+      }
+
+      if (!container || !containerPosition) {
         return {
           success: false,
-          message: "Container not found at current position",
+          message: "Container not found at or adjacent to current position",
           events,
         };
       }
@@ -467,7 +500,7 @@ export function executeAction(
             ? contents.map((i) => i.name).join(", ")
             : "nothing"
         }`,
-        location: character.position,
+        location: containerPosition,
         itemId: container.id,
         source: "witnessed",
       });
@@ -477,7 +510,7 @@ export function executeAction(
         type: "search",
         actorId: character.id,
         itemId: container.id,
-        position: character.position,
+        position: containerPosition,
         description: `${character.name} searched ${container.name}`,
       });
 
@@ -493,17 +526,32 @@ export function executeAction(
         return { success: false, message: "No item specified", events };
       }
 
-      const tile = world.tiles[character.position.y][character.position.x];
+      const pickupPositions = [
+        character.position,
+        { x: character.position.x - 1, y: character.position.y },
+        { x: character.position.x + 1, y: character.position.y },
+        { x: character.position.x, y: character.position.y - 1 },
+        { x: character.position.x, y: character.position.y + 1 },
+      ];
+
       let item: Item | undefined;
       let fromContainer: Item | undefined;
 
-      const tileItemIndex = tile.items.findIndex(
-        (i) => i.id === action.targetItemId
-      );
-      if (tileItemIndex >= 0) {
-        item = tile.items[tileItemIndex];
-        tile.items.splice(tileItemIndex, 1);
-      } else {
+      for (const pos of pickupPositions) {
+        if (pos.x < 0 || pos.x >= world.width || pos.y < 0 || pos.y >= world.height) {
+          continue;
+        }
+        const tile = world.tiles[pos.y][pos.x];
+
+        const tileItemIndex = tile.items.findIndex(
+          (i) => i.id === action.targetItemId
+        );
+        if (tileItemIndex >= 0) {
+          item = tile.items[tileItemIndex];
+          tile.items.splice(tileItemIndex, 1);
+          break;
+        }
+
         for (const container of tile.items.filter(
           (i) => i.type === "container"
         )) {
@@ -517,6 +565,7 @@ export function executeAction(
             break;
           }
         }
+        if (item) break;
       }
 
       if (!item) {
@@ -886,6 +935,17 @@ export function executeAction(
         return { success: false, message: "Item is not a trap", events };
       }
 
+      // Check if there's a container on the current tile
+      const currentTile =
+        world.tiles[character.position.y][character.position.x];
+      if (hasContainer(currentTile)) {
+        return {
+          success: false,
+          message: "Cannot place trap on a tile with a container",
+          events,
+        };
+      }
+
       // Remove trap from inventory
       const itemIndex = character.inventory.findIndex(
         (i) => i.id === trapItem!.id
@@ -893,7 +953,7 @@ export function executeAction(
       character.inventory.splice(itemIndex, 1);
 
       // Place trap on current tile
-      const tile = world.tiles[character.position.y][character.position.x];
+      const tile = currentTile;
       tile.traps.push({
         id: trapItem.id,
         name: trapItem.name,

@@ -7,6 +7,7 @@ import {
   startMoveAnimation,
   updateAnimations,
   isAnimating,
+  setThinkingCharacter,
   TILE_SIZE,
 } from "./renderer";
 import {
@@ -32,6 +33,7 @@ type AgentDecisionLog = {
   fullPrompt: string;
   fullResponse: string;
   sequence: number;
+  errors?: string[];
 };
 
 type LogEntry =
@@ -101,6 +103,43 @@ function getCurrentCharacter(): Character | null {
   const alive = getAliveCharacters();
   if (alive.length === 0) return null;
   return alive[currentCharacterIndex % alive.length];
+}
+
+const CHARACTER_COLORS: Record<string, string> = {
+  Kane: "#e63946",
+  Razor: "#4361ee",
+  Prey: "#2a9d8f",
+};
+
+function showThoughtBubble(character: Character, reasoning: string): void {
+  const bubble = document.getElementById("thought-bubble");
+  const avatar = document.getElementById("thought-avatar");
+  const name = document.getElementById("thought-name");
+  const content = document.getElementById("thought-content");
+
+  if (bubble && avatar && name && content) {
+    const color = CHARACTER_COLORS[character.name] ?? "#e8c84a";
+    avatar.style.backgroundColor = color;
+    avatar.textContent = character.name.charAt(0);
+    name.textContent = character.name;
+    name.style.color = color;
+    content.textContent = `"${reasoning}"`;
+    bubble.classList.remove("placeholder");
+    bubble.classList.add("visible");
+    bubble.style.borderColor = color;
+  }
+}
+
+function hideThoughtBubble(): void {
+  const bubble = document.getElementById("thought-bubble");
+  if (bubble) {
+    bubble.classList.remove("visible");
+    bubble.classList.add("placeholder");
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function updateUI(): void {
@@ -237,6 +276,7 @@ function addReasoningEntry(
       fullPrompt,
       fullResponse,
       sequence: logSequence++,
+      errors: errors && errors.length > 0 ? errors : undefined,
     };
     allAgentDecisions.push(decision);
     chronologicalLog.push({ type: "decision", decision });
@@ -370,7 +410,7 @@ function renderWorld(): void {
     current && !viewingSnapshot
       ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
       : undefined;
-  render(ctx, displayWorld, current, reachable, visible);
+  render(ctx, displayWorld, current, reachable, visible, current?.id);
 }
 
 function handleCanvasClick(event: MouseEvent): void {
@@ -553,9 +593,19 @@ async function processTurn(): Promise<void> {
     while (!turnEnded && current.alive && maxIterations > 0) {
       maxIterations--;
 
+      setThinkingCharacter(current.id);
+      renderWorld();
+
       const { actions, reasoning, fullPrompt, fullResponse, errors } =
         await getAgentDecision(world, current, lastFailure);
+
+      setThinkingCharacter(null);
+
+      // Show what the character is thinking and pause
+      showThoughtBubble(current, reasoning);
       addReasoningEntry(current, reasoning, fullPrompt, fullResponse, errors);
+      await delay(2500); // Let player read the thought
+      hideThoughtBubble();
 
       lastFailure = undefined;
       let searchedContainer = false;
@@ -787,6 +837,13 @@ function exportLogs(): void {
       lines.push("");
       lines.push("--- FULL RESPONSE ---");
       lines.push(d.fullResponse);
+      if (d.errors && d.errors.length > 0) {
+        lines.push("");
+        lines.push("--- ERRORS ---");
+        for (const error of d.errors) {
+          lines.push(`⚠️ ${error}`);
+        }
+      }
       lines.push("=".repeat(60));
       lines.push("");
     }
@@ -917,6 +974,13 @@ function getCompactLogText(): string {
         }
       } catch {
         lines.push(`  Response: ${d.fullResponse.substring(0, 200)}...`);
+      }
+
+      // Include any errors
+      if (d.errors && d.errors.length > 0) {
+        for (const error of d.errors) {
+          lines.push(`  ⚠️ ERROR: ${error}`);
+        }
       }
     }
   }

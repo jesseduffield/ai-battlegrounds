@@ -23,6 +23,8 @@ const COLORS = {
   attackRange: "rgba(255, 100, 100, 0.3)",
   visible: "rgba(255, 255, 200, 0.08)",
   notVisible: "rgba(0, 0, 0, 0.5)",
+  trap: "#8B4513",
+  trapTeeth: "#666",
 };
 
 const CHARACTER_COLORS: Record<string, { body: string; accent: string }> = {
@@ -70,6 +72,11 @@ export type MovingCharacter = {
 let floatingTexts: FloatingText[] = [];
 let movingCharacters: Map<string, MovingCharacter> = new Map();
 let characterIndexMap: Map<string, number> = new Map();
+
+// Thinking state (kept for potential future canvas-based thinking indicator)
+export function setThinkingCharacter(_characterId: string | null): void {
+  // Currently handled by HTML UI indicator
+}
 
 export function addFloatingText(
   x: number,
@@ -299,6 +306,35 @@ function drawCharacter(
   characterIndexMap.set(character.id, index);
 }
 
+function drawTrap(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  const px = x * TILE_SIZE + TILE_SIZE / 2;
+  const py = y * TILE_SIZE + TILE_SIZE / 2;
+  const size = 10;
+
+  ctx.strokeStyle = COLORS.trap;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(px, py, size, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = COLORS.trapTeeth;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI * 2) / 8;
+    const innerR = size - 3;
+    const outerR = size + 3;
+    ctx.beginPath();
+    ctx.moveTo(px + Math.cos(angle) * innerR, py + Math.sin(angle) * innerR);
+    ctx.lineTo(px + Math.cos(angle) * outerR, py + Math.sin(angle) * outerR);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = COLORS.trap;
+  ctx.beginPath();
+  ctx.arc(px, py, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawItem(
   ctx: CanvasRenderingContext2D,
   item: Item,
@@ -341,7 +377,8 @@ export function render(
   world: World,
   highlightedCharacter?: Character,
   reachableTiles?: Position[],
-  visibleTiles?: Position[]
+  visibleTiles?: Position[],
+  currentCharacterId?: string
 ): void {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, world.width * TILE_SIZE, world.height * TILE_SIZE);
@@ -408,6 +445,14 @@ export function render(
       tile.items.forEach((item, index) => {
         drawItem(ctx, item, x, y, index);
       });
+
+      if (tile.traps && currentCharacterId) {
+        for (const trap of tile.traps) {
+          if (trap.ownerId === currentCharacterId) {
+            drawTrap(ctx, x, y);
+          }
+        }
+      }
     }
   }
 

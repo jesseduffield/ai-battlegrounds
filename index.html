@@ -247,6 +247,97 @@
       font-size: 0.75rem;
     }
 
+    .thought-bubble {
+      background: var(--bg-panel);
+      border: 2px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-top: 1rem;
+      position: relative;
+      animation: fade-in 0.3s ease-out;
+      min-height: 80px;
+      visibility: hidden;
+    }
+
+    .thought-bubble.visible {
+      visibility: visible;
+    }
+
+    .thought-bubble.placeholder {
+      background: transparent;
+      border-color: transparent;
+    }
+
+    .thought-bubble.placeholder::before,
+    .thought-bubble.placeholder::after {
+      display: none;
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .thought-bubble::before {
+      content: '';
+      position: absolute;
+      top: -10px;
+      left: 30px;
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-bottom: 10px solid var(--border-color);
+    }
+
+    .thought-bubble::after {
+      content: '';
+      position: absolute;
+      top: -7px;
+      left: 32px;
+      width: 0;
+      height: 0;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-bottom: 8px solid var(--bg-panel);
+    }
+
+    .thought-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .thought-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 12px;
+      color: #fff;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+      flex-shrink: 0;
+    }
+
+    .thought-name {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .thought-content {
+      font-size: 0.85rem;
+      font-style: italic;
+      color: var(--text-primary);
+      line-height: 1.5;
+    }
+
     .memory-item {
       padding: 0.25rem 0;
       border-bottom: 1px solid var(--border-color);
@@ -390,6 +481,15 @@
         <button id="return-to-present">Return to Present</button>
       </div>
       <canvas id="game-canvas" width="640" height="480"></canvas>
+      <div class="thought-bubble placeholder" id="thought-bubble">
+        <div class="thought-header">
+          <div class="thought-avatar" id="thought-avatar"></div>
+          <span class="thought-name" id="thought-name">Character</span>
+        </div>
+        <div class="thought-content" id="thought-content">
+          "Thinking..."
+        </div>
+      </div>
     </div>
 
     <div class="sidebar sidebar-left">

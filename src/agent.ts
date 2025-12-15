@@ -130,9 +130,21 @@ function formatKnowledge(
     );
   }
 
-  if (knowledge.status.inventory.length > 0) {
+  lines.push(
+    `\nInventory: ${
+      knowledge.status.inventory.length > 0
+        ? knowledge.status.inventory.map((i) => i.name).join(", ")
+        : "(empty)"
+    }`
+  );
+
+  // Check for traps in inventory
+  const trapsInInventory = knowledge.status.inventory.filter(
+    (i) => i.type === "trap"
+  );
+  if (trapsInInventory.length > 0) {
     lines.push(
-      `\nInventory: ${knowledge.status.inventory.map((i) => i.name).join(", ")}`
+      `  -> You have a trap! Use PLACE to set it where enemies will walk.`
     );
   }
 
@@ -218,20 +230,20 @@ function formatKnowledge(
     (i) => i.item.type !== "container"
   );
 
-  const containersAtPosition = containers.filter(
-    (c) =>
-      c.position.x === knowledge.status.position.x &&
-      c.position.y === knowledge.status.position.y
-  );
-  const containersNearby = containers.filter(
-    (c) =>
-      c.position.x !== knowledge.status.position.x ||
-      c.position.y !== knowledge.status.position.y
-  );
+  const pos = knowledge.status.position;
+  const isAdjacent = (p: { x: number; y: number }) =>
+    Math.abs(p.x - pos.x) <= 1 &&
+    Math.abs(p.y - pos.y) <= 1 &&
+    (p.x !== pos.x || p.y !== pos.y);
 
-  if (containersAtPosition.length > 0) {
-    lines.push(`\n=== CONTAINERS AT YOUR POSITION ===`);
-    for (const { item } of containersAtPosition) {
+  const adjacentContainers = containers.filter((c) => isAdjacent(c.position));
+  const farContainers = containers.filter((c) => !isAdjacent(c.position));
+
+  if (adjacentContainers.length > 0) {
+    lines.push(
+      `\n=== ADJACENT CONTAINERS (you can SEARCH now, no MOVE needed!) ===`
+    );
+    for (const { item } of adjacentContainers) {
       if (item.searched) {
         if (item.contents && item.contents.length > 0) {
           lines.push(`${item.name} (searched) - still contains:`);
@@ -242,14 +254,14 @@ function formatKnowledge(
           lines.push(`${item.name} (searched) - EMPTY, nothing left`);
         }
       } else {
-        lines.push(`${item.name} (not searched) - SEARCH it to see contents!`);
+        lines.push(`${item.name} - NOT SEARCHED! Use: SEARCH "${item.name}"`);
       }
     }
   }
 
-  if (containersNearby.length > 0 && !hasWeapon) {
-    lines.push(`\n=== CONTAINERS NEARBY (need weapon?) ===`);
-    for (const { item, position } of containersNearby) {
+  if (farContainers.length > 0 && !hasWeapon) {
+    lines.push(`\n=== CONTAINERS FURTHER AWAY ===`);
+    for (const { item, position } of farContainers) {
       if (item.searched) {
         if (item.contents && item.contents.length > 0) {
           lines.push(
@@ -262,7 +274,9 @@ function formatKnowledge(
         }
       } else {
         lines.push(
-          `${item.name} at ${formatPosition(position)} - not searched`
+          `${item.name} at ${formatPosition(
+            position
+          )} - not searched (move adjacent to search)`
         );
       }
     }
@@ -293,8 +307,10 @@ function formatKnowledge(
   lines.push(
     `  - MOVE x y : Move to position (max ${character.movementRange} tiles)`
   );
-  lines.push(`  - SEARCH container_name : Search container at your position`);
-  lines.push(`  - PICKUP item_name : Take item from searched container`);
+  lines.push(`  - SEARCH container_name : Search adjacent container`);
+  lines.push(
+    `  - PICKUP item_name : Take item from adjacent searched container`
+  );
   lines.push(
     `  - EQUIP item_name : Equip weapon/clothing (cannot ATTACK same turn)`
   );
@@ -306,12 +322,6 @@ function formatKnowledge(
     `  - TALK character_name "message" : Speak to character (2 tiles)`
   );
   lines.push(`  - WAIT : End turn doing nothing`);
-  lines.push(``);
-  lines.push(`Write actions on SEPARATE LINES. Example:`);
-  lines.push(`MOVE 2 2`);
-  lines.push(`SEARCH Kitchen Cupboard`);
-  lines.push(`PICKUP Kitchen Knife`);
-  lines.push(`EQUIP Kitchen Knife`);
 
   lines.push(``);
   lines.push(`=== YOUR MAP (from memory) ===`);
@@ -345,7 +355,8 @@ const actionResponseSchema = {
     properties: {
       reasoning: {
         type: "string",
-        description: "1-2 sentences explaining your decision",
+        description:
+          "MAX 15 words. Raw emotional inner monologue like talking to yourself. No coordinates.",
       },
       actions: {
         type: "array",
@@ -416,6 +427,7 @@ function parseJsonActions(
   const actions: Action[] = [];
   const errors: string[] = [];
   let hasMoved = false;
+  let hasSearched = false;
 
   for (const jsonAction of jsonResponse.actions) {
     const actionType = jsonAction.action.toLowerCase() as ValidActionType;
@@ -505,11 +517,13 @@ function parseJsonActions(
               type: "search_container",
               targetItemId: container.item.id,
             };
+            hasSearched = true;
           } else {
             action = {
               type: "search_container",
               targetItemName: jsonAction.target,
             };
+            hasSearched = true;
           }
         } else {
           errors.push("SEARCH requires a container name");
@@ -587,16 +601,33 @@ function parseJsonActions(
         break;
 
       case "place":
-        if (jsonAction.target) {
-          const item = knowledge.status.inventory.find(
-            (i) =>
-              i.name.toLowerCase().includes(jsonAction.target!.toLowerCase()) &&
-              i.type === "trap"
+        if (hasSearched) {
+          errors.push(
+            `PLACE failed: Cannot place a trap after searching a container in the same turn.`
           );
-          if (item) {
-            action = { type: "place", targetItemId: item.id };
+        } else if (jsonAction.target) {
+          const trapsInInv = knowledge.status.inventory.filter(
+            (i) => i.type === "trap"
+          );
+          if (trapsInInv.length === 0) {
+            errors.push(
+              `PLACE failed: No traps in inventory! You already placed it or never picked one up.`
+            );
           } else {
-            action = { type: "place", targetItemName: jsonAction.target };
+            const item = trapsInInv.find((i) =>
+              i.name.toLowerCase().includes(jsonAction.target!.toLowerCase())
+            );
+            if (item) {
+              action = { type: "place", targetItemId: item.id };
+            } else {
+              errors.push(
+                `PLACE failed: "${
+                  jsonAction.target
+                }" not found in inventory. You have: ${trapsInInv
+                  .map((t) => t.name)
+                  .join(", ")}`
+              );
+            }
           }
         } else {
           errors.push("PLACE requires a trap name");
@@ -652,34 +683,34 @@ export async function getAgentDecision(
   const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality. Act accordingly.
 
 AVAILABLE ACTIONS (use exact names in "action" field):
-- MOVE: Move to a tile. Requires x and y coordinates from "TILES YOU CAN MOVE TO" list.
+- MOVE: Move to a tile (ONE move only, go directly to destination). Requires x and y.
 - ATTACK: Attack an adjacent character. Requires target (character name). Ends turn.
 - TALK: Speak to character within 2 tiles. Requires target and message. Ends turn.
-- SEARCH: Search a container at your position. Requires target (container name).
-- PICKUP: Pick up an item from searched container or ground. Requires target (item name).
+- SEARCH: Search an adjacent container (can't walk on container tiles). Requires target (container name).
+- PICKUP: Pick up item from adjacent searched container or ground. Requires target (item name).
 - EQUIP: Equip a weapon or clothing from inventory. Requires target (item name).
-- PLACE: Place a trap from your inventory onto your current tile. Requires target (trap name).
+- PLACE: Place a trap on current tile (NOT on container tiles!). Requires target (trap name). Only works if you have a trap!
 - DROP: Drop an item from inventory. Requires target (item name).
 - WAIT: End turn doing nothing. No parameters needed.
 
 RULES:
-- "CAN ATTACK" next to a name = adjacent, you can attack them
-- "CAN TALK" next to a name = within 2 tiles, you can speak to them
-- You can chain actions: MOVE first, then other actions
-- ATTACK or TALK ends your turn (but you can MOVE before either)
-- Items on corpses drop to the ground and can be picked up
-- TRAPS are invisible to enemies! Place them where enemies will walk, then attack when they're trapped
+- ONE MOVE PER TURN! Pick your destination, move directly there in a single action.
+- "CAN ATTACK" = adjacent, attack now. "CAN TALK" = within 2 tiles.
+- You can chain: MOVE → then SEARCH/PICKUP/EQUIP/PLACE → then ATTACK or TALK
+- ATTACK or TALK ends your turn
+- Cannot PLACE a trap after SEARCH in the same turn
+- TRAPS are invisible to enemies! Place them in chokepoints
 
 Respond with JSON containing:
-- reasoning: 1-2 sentences explaining your decision
+- reasoning: MAX 15 WORDS. Raw inner monologue - emotional, human, like talking to yourself. NO coordinates, NO "target/mission/objective".
 - actions: array of action objects
 
 EXAMPLES:
-{"reasoning": "I need to flee!", "actions": [{"action": "MOVE", "x": 12, "y": 5}]}
-{"reasoning": "Enemy adjacent. Strike!", "actions": [{"action": "ATTACK", "target": "Kane"}]}
-{"reasoning": "Move and negotiate.", "actions": [{"action": "MOVE", "x": 5, "y": 7}, {"action": "TALK", "target": "Razor", "message": "Let's work together!"}]}
-{"reasoning": "Arm myself from corpse.", "actions": [{"action": "PICKUP", "target": "Hunting Knife"}, {"action": "EQUIP", "target": "Hunting Knife"}]}
-{"reasoning": "Set a trap for the hunter.", "actions": [{"action": "MOVE", "x": 8, "y": 5}, {"action": "PLACE", "target": "Bear Trap"}]}`;
+{"reasoning": "Gotta run. NOW.", "actions": [{"action": "MOVE", "x": 12, "y": 5}]}
+{"reasoning": "Die.", "actions": [{"action": "ATTACK", "target": "Kane"}]}
+{"reasoning": "Maybe we don't have to do this...", "actions": [{"action": "TALK", "target": "Razor", "message": "Wait!"}]}
+{"reasoning": "A knife! Hell yes.", "actions": [{"action": "PICKUP", "target": "Knife"}, {"action": "EQUIP", "target": "Knife"}]}
+{"reasoning": "Walk into my trap, idiots.", "actions": [{"action": "PLACE", "target": "Bear Trap"}]}`;
 
   const userPrompt = `${character.personalityPrompt}
 
