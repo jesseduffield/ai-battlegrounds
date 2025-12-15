@@ -36,9 +36,11 @@ function createTestCharacter(
     inventory: [],
     memories: [],
     movementRange: 5,
+    viewDistance: 10,
     personalityPrompt: "",
     alive: true,
     mapMemory: new Map(),
+    debuffTurnsRemaining: 0,
     ...overrides,
   };
 }
