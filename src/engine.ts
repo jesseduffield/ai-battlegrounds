@@ -39,11 +39,8 @@ function canWalkThrough(tile: Tile): boolean {
   return !hasContainer(tile);
 }
 
-export function lineOfSight(
-  world: World,
-  from: Position,
-  to: Position
-): boolean {
+// Basic ray trace - returns true if no blocking tiles between from and to
+function rayTrace(world: World, from: Position, to: Position): boolean {
   const dx = Math.abs(to.x - from.x);
   const dy = Math.abs(to.y - from.y);
   const sx = from.x < to.x ? 1 : -1;
@@ -70,6 +67,68 @@ export function lineOfSight(
       y += sy;
     }
   }
+}
+
+export function lineOfSight(
+  world: World,
+  from: Position,
+  to: Position
+): boolean {
+  // Check if destination is a wall
+  const destIsWall =
+    to.x >= 0 &&
+    to.x < world.width &&
+    to.y >= 0 &&
+    to.y < world.height &&
+    world.tiles[to.y][to.x].type === "wall";
+
+  if (!destIsWall) {
+    // For non-walls, standard ray trace
+    return rayTrace(world, from, to);
+  }
+
+  // For walls, check if we can see any FACE of the wall
+  // A wall face is visible if we can see the tile adjacent to that face
+
+  // Determine which faces are potentially visible based on viewer position
+  const facesToCheck: Position[] = [];
+
+  // If viewer is to the right of wall, check if east face is visible
+  // (trace to the tile east of the wall)
+  if (from.x > to.x && to.x + 1 < world.width) {
+    facesToCheck.push({ x: to.x + 1, y: to.y });
+  }
+  // If viewer is to the left of wall, check west face
+  if (from.x < to.x && to.x - 1 >= 0) {
+    facesToCheck.push({ x: to.x - 1, y: to.y });
+  }
+  // If viewer is below wall, check south face
+  if (from.y > to.y && to.y + 1 < world.height) {
+    facesToCheck.push({ x: to.x, y: to.y + 1 });
+  }
+  // If viewer is above wall, check north face
+  if (from.y < to.y && to.y - 1 >= 0) {
+    facesToCheck.push({ x: to.x, y: to.y - 1 });
+  }
+
+  // The wall is visible if we can trace a ray to any of its exposed faces
+  // (the adjacent tile must not be a wall, and we must have LOS to it)
+  for (const facePos of facesToCheck) {
+    const faceTile = world.tiles[facePos.y][facePos.x];
+    // Only check faces that are exposed (adjacent to non-wall)
+    if (!isBlocking(faceTile)) {
+      if (rayTrace(world, from, facePos)) {
+        return true;
+      }
+    }
+  }
+
+  // Also check if we're adjacent to the wall (always visible)
+  if (Math.abs(from.x - to.x) <= 1 && Math.abs(from.y - to.y) <= 1) {
+    return true;
+  }
+
+  return false;
 }
 
 export function getVisibleTiles(
