@@ -221,7 +221,6 @@ export function getVisibleTiles(
 
   for (const other of world.characters) {
     if (other.id === character.id) continue;
-    if (!other.alive) continue;
     if (visibleSet.has(`${other.position.x},${other.position.y}`)) {
       visible.characters.push({ character: other, position: other.position });
     }
@@ -544,14 +543,25 @@ export function executeAction(
       }
 
       for (const { character: other, position } of visible.characters) {
-        addMemory(character, {
-          turn: world.turn,
-          type: "saw_character",
-          description: `Saw ${other.name} at (${position.x}, ${position.y})`,
-          location: position,
-          characterId: other.id,
-          source: "witnessed",
-        });
+        if (other.alive) {
+          addMemory(character, {
+            turn: world.turn,
+            type: "saw_character",
+            description: `Saw ${other.name} at (${position.x}, ${position.y})`,
+            location: position,
+            characterId: other.id,
+            source: "witnessed",
+          });
+        } else {
+          addMemory(character, {
+            turn: world.turn,
+            type: "saw_corpse",
+            description: `Saw ${other.name}'s corpse at (${position.x}, ${position.y})`,
+            location: position,
+            characterId: other.id,
+            source: "witnessed",
+          });
+        }
       }
 
       for (const { item, position } of visible.items) {
@@ -978,6 +988,7 @@ export function executeAction(
             source: "witnessed",
           });
 
+          // Notify witnesses about the kill and dropped items
           for (const witness of world.characters) {
             if (witness.id === character.id || witness.id === target.id)
               continue;
@@ -995,7 +1006,28 @@ export function executeAction(
                 location: target.position,
                 source: "witnessed",
               });
+              // Also remember dropped items
+              for (const item of tile.items) {
+                addMemory(witness, {
+                  turn: world.turn,
+                  type: "saw_item",
+                  description: `${target.name} dropped ${item.name} at (${target.position.x}, ${target.position.y})`,
+                  location: target.position,
+                  source: "witnessed",
+                });
+              }
             }
+          }
+
+          // The killer also knows about dropped items
+          for (const item of tile.items) {
+            addMemory(character, {
+              turn: world.turn,
+              type: "saw_item",
+              description: `${target.name} dropped ${item.name} at (${target.position.x}, ${target.position.y})`,
+              location: target.position,
+              source: "witnessed",
+            });
           }
         }
       }
@@ -1195,7 +1227,7 @@ export function executeAction(
 
       return {
         success: true,
-        message: `Placed ${trapItem.name} - invisible to enemies!`,
+        message: `Placed ${trapItem.name} at (${action.targetPosition.x}, ${action.targetPosition.y}) - invisible to enemies!`,
         events,
         animationData: {
           type: "place",

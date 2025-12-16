@@ -73,6 +73,7 @@ export type Character = {
 export type MemoryType =
   | "saw_item"
   | "saw_character"
+  | "saw_corpse"
   | "searched_container"
   | "picked_up_item"
   | "attacked"

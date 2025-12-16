@@ -42,6 +42,7 @@ let ctx: CanvasRenderingContext2D;
 let currentCharacterIndex = 0;
 let isProcessingTurn = false;
 let autoPlayInterval: number | null = null;
+let fastMode = false;
 let allEvents: GameEvent[] = [];
 let allAgentDecisions: AgentDecisionLog[] = [];
 let chronologicalLog: LogEntry[] = [];
@@ -619,7 +620,9 @@ async function processTurn(): Promise<void> {
       // Show what the character is thinking and pause (only if reasoning provided)
       if (reasoning) {
         showThoughtBubble(current, reasoning);
-        await delay(2500); // Let player read the thought
+        if (!fastMode) {
+          await delay(2500); // Let player read the thought
+        }
         hideThoughtBubble();
       }
       addReasoningEntry(
@@ -787,7 +790,9 @@ async function processTurn(): Promise<void> {
       // Show speech bubble for talk actions
       if (action.type === "talk" && result.success && action.message) {
         showThoughtBubble(current, action.message, "speaking");
-        await delay(3000);
+        if (!fastMode) {
+          await delay(3000);
+        }
         hideThoughtBubble();
       }
 
@@ -885,6 +890,14 @@ function toggleAutoPlay(): void {
     }, 500);
   }
   updateAutoPlayButton();
+}
+
+function toggleSpeed(): void {
+  fastMode = !fastMode;
+  const btn = document.getElementById("speed-toggle-btn");
+  if (btn) {
+    btn.textContent = fastMode ? "🐇 Fast" : "🐢 Slow";
+  }
 }
 
 function exportLogs(): void {
@@ -1214,6 +1227,9 @@ function init(): void {
 
   const autoPlayBtn = document.getElementById("auto-play-btn");
   autoPlayBtn?.addEventListener("click", toggleAutoPlay);
+
+  const speedToggleBtn = document.getElementById("speed-toggle-btn");
+  speedToggleBtn?.addEventListener("click", toggleSpeed);
 
   const exportLogsBtn = document.getElementById("export-logs-btn");
   exportLogsBtn?.addEventListener("click", exportLogs);

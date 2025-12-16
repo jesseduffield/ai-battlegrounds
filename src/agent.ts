@@ -202,9 +202,7 @@ function formatKnowledge(
       }) ***`
     );
   } else {
-    lines.push(
-      `*** YOU ARE UNARMED (fists only, 1 damage) - find a weapon! ***`
-    );
+    lines.push(`*** YOU ARE UNARMED (fists only, 1 damage) ***`);
   }
 
   lines.push(
@@ -262,13 +260,16 @@ function formatKnowledge(
         );
       }
     }
-  } else if (deadEnemies.length > 0) {
-    lines.push(`*** ALL ENEMIES ARE DEAD - YOU WON! ***`);
-    for (const { character: other } of deadEnemies) {
-      lines.push(`  - ${other.name}: DEAD`);
-    }
   } else {
-    lines.push(`No enemies visible - move to find them!`);
+    lines.push(`  No living enemies visible`);
+  }
+
+  // Show corpses separately
+  if (deadEnemies.length > 0) {
+    lines.push(`\n=== CORPSES ===`);
+    for (const { character: other, position } of deadEnemies) {
+      lines.push(`  - ${other.name}'s corpse at ${formatPosition(position)}`);
+    }
   }
 
   const reachable = getReachableTiles(world, character);
@@ -432,7 +433,7 @@ const actionResponseSchema = {
       thought: {
         type: ["string", "null"],
         description:
-          "What flashes through your mind RIGHT NOW. Raw, emotional, in-the-moment. Not an explanation. null for follow-ups.",
+          "REQUIRED on first action of turn. Short, natural thought. null on follow-up actions.",
       },
       action: {
         type: "string",
@@ -780,9 +781,9 @@ export async function getAgentDecision(
     hasMoved
   );
 
-  // Add turn history at the top
+  // Add turn history at the bottom so AI sees current state first
   if (turnHistory.length > 0) {
-    let historySection = `=== WHAT YOU'VE DONE THIS TURN ===\n`;
+    let historySection = `\n=== WHAT YOU'VE DONE THIS TURN ===\n`;
     for (let i = 0; i < turnHistory.length; i++) {
       try {
         const parsed = JSON.parse(turnHistory[i].response);
@@ -807,12 +808,10 @@ export async function getAgentDecision(
     }
     if (hasMoved) {
       historySection += `⛔ MOVE UNAVAILABLE. Choose: SEARCH, PICKUP, EQUIP, ATTACK, TALK, or WAIT.\n`;
-      historySection += `⚠️ SET "thought": null (this is a follow-up action)\n`;
     } else {
       historySection += `You can still take more actions before ending your turn.\n`;
-      historySection += `⚠️ SET "thought": null for follow-up actions.\n`;
     }
-    situationDescription = historySection + `\n` + situationDescription;
+    situationDescription = situationDescription + historySection;
   }
 
   if (lastFailure) {
@@ -828,7 +827,7 @@ export async function getAgentDecision(
   // Add continuity guidance if there's history
   const continuityNote =
     turnHistory.length > 0
-      ? `\nThis is a FOLLOW-UP action. You MUST set "thought": null.`
+      ? `\nThis is a FOLLOW-UP action. Set "thought": null.`
       : "";
 
   const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
@@ -847,7 +846,7 @@ ${moveAction}
 - WAIT: End turn. No parameters.
 
 Respond with JSON:
-- thought: Short thought. null for follow-ups.
+- thought: REQUIRED on first action (what's on your mind). Optional on follow-up actions. Only use on follow up actions if acting on new information.
 - action: The action type
 - x, y: Coordinates if needed (null otherwise)
 - target: Target name if needed (null otherwise)
@@ -855,13 +854,13 @@ Respond with JSON:
 
 EXAMPLES:
 ${
-  hasMoved
+  turnHistory.length > 0
     ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
 {"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
 {"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
-    : `{"thought": "He's getting closer.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
-{"thought": "Now!", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`
+    : `{"thought": "There he is.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
+{"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
+{"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`
 }`;
 
   const userPrompt = `${character.personalityPrompt}
