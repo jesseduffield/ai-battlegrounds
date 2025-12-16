@@ -329,6 +329,7 @@ function formatKnowledge(
 
   // Separate important memories from "saw X" observations
   const importantTypes = [
+    "thought",
     "attacked",
     "was_attacked",
     "character_died",

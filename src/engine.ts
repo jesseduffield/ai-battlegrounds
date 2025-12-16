@@ -389,7 +389,10 @@ export function calculateDamage(attacker: Character): {
   return { damage: 0, roll, isDebuffed };
 }
 
-function addMemory(character: Character, memory: Omit<Memory, "id">): void {
+export function addMemory(
+  character: Character,
+  memory: Omit<Memory, "id">
+): void {
   character.memories.push({ ...memory, id: createId() });
 }
 

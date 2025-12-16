@@ -9,7 +9,12 @@ import {
   isAnimating,
   setThinkingCharacter,
 } from "./renderer";
-import { executeAction, getReachableTiles, getVisibleTiles } from "./engine";
+import {
+  executeAction,
+  getReachableTiles,
+  getVisibleTiles,
+  addMemory,
+} from "./engine";
 import { getAgentDecision, initializeAgent } from "./agent";
 import type { World, Character, GameEvent, Position } from "./types";
 
@@ -619,6 +624,14 @@ async function processTurn(): Promise<void> {
 
       // Show what the character is thinking and pause (only if reasoning provided)
       if (reasoning) {
+        // Store thought as memory
+        addMemory(current, {
+          turn: world.turn,
+          type: "thought",
+          description: `Thought: "${reasoning}"`,
+          source: "witnessed",
+        });
+
         showThoughtBubble(current, reasoning);
         if (!fastMode) {
           await delay(2500); // Let player read the thought

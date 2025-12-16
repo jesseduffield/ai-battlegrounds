@@ -82,7 +82,8 @@ export type MemoryType =
   | "character_died"
   | "heard_about"
   | "talked_to"
-  | "placed_trap";
+  | "placed_trap"
+  | "thought";
 
 export type Memory = {
   id: string;
