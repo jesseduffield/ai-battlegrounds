@@ -573,7 +573,7 @@ export function executeAction(
     }
 
     case "search_container": {
-      if (!action.targetItemId) {
+      if (!action.targetItemId && !action.targetItemName) {
         return { success: false, message: "No container specified", events };
       }
 
@@ -588,6 +588,18 @@ export function executeAction(
       let container: Item | undefined;
       let containerPosition: Position | undefined;
 
+      // Helper to match container by ID or name
+      const matchesContainer = (item: Item): boolean => {
+        if (item.type !== "container") return false;
+        if (action.targetItemId && item.id === action.targetItemId) return true;
+        if (action.targetItemName) {
+          return item.name
+            .toLowerCase()
+            .includes(action.targetItemName.toLowerCase());
+        }
+        return false;
+      };
+
       for (const pos of adjacentPositions) {
         if (
           pos.x < 0 ||
@@ -598,9 +610,7 @@ export function executeAction(
           continue;
         }
         const tile = world.tiles[pos.y][pos.x];
-        const found = tile.items.find(
-          (i) => i.id === action.targetItemId && i.type === "container"
-        );
+        const found = tile.items.find(matchesContainer);
         if (found) {
           container = found;
           containerPosition = pos;
@@ -609,9 +619,10 @@ export function executeAction(
       }
 
       if (!container || !containerPosition) {
+        const targetName = action.targetItemName || "container";
         return {
           success: false,
-          message: "Container not found at or adjacent to current position",
+          message: `${targetName} not adjacent - must be within 1 tile to search`,
           events,
         };
       }
