@@ -216,3 +216,123 @@ export function createTownMap(): World {
     turn: 1,
   };
 }
+
+export function createBloodsportMap(): World {
+  const width = 20;
+  const height = 15;
+
+  const tiles: Tile[][] = [];
+  for (let y = 0; y < height; y++) {
+    tiles[y] = [];
+    for (let x = 0; x < width; x++) {
+      tiles[y][x] = createTile("grass");
+    }
+  }
+
+  const rooms: Room[] = [];
+  const roomId = createId();
+  rooms.push({
+    id: roomId,
+    name: "The Arena",
+    bounds: { minX: 1, minY: 1, maxX: 18, maxY: 13 },
+  });
+
+  // Fill entire arena with ground, surrounded by walls
+  for (let y = 1; y <= 13; y++) {
+    for (let x = 1; x <= 18; x++) {
+      if (y === 1 || y === 13 || x === 1 || x === 18) {
+        tiles[y][x] = createTile("wall");
+      } else {
+        tiles[y][x] = createTile("ground");
+        tiles[y][x].roomId = roomId;
+      }
+    }
+  }
+
+  // Central pillar for cover
+  tiles[6][9] = createTile("wall");
+  tiles[7][9] = createTile("wall");
+  tiles[8][9] = createTile("wall");
+  tiles[6][10] = createTile("wall");
+  tiles[7][10] = createTile("wall");
+  tiles[8][10] = createTile("wall");
+
+  // Corner cover blocks
+  tiles[3][4] = createTile("wall");
+  tiles[3][15] = createTile("wall");
+  tiles[11][4] = createTile("wall");
+  tiles[11][15] = createTile("wall");
+
+  // Create weapons for all 4 players
+  const knife1 = createItem("Combat Knife", "weapon", { damage: 4 });
+  const knife2 = createItem("Combat Knife", "weapon", { damage: 4 });
+  const knife3 = createItem("Combat Knife", "weapon", { damage: 4 });
+  const knife4 = createItem("Combat Knife", "weapon", { damage: 4 });
+
+  const bloodsportPrompt = (name: string, others: string) =>
+    `You are ${name}. You are a contestant in a deadly game show called BLOODSPORT. The other contestants are ${others}.
+
+THE RULES: You MUST kill at least one person before time runs out (Turn 20). If you haven't killed anyone by then, the game host will execute you.
+
+You start armed with a knife. The clock is ticking. Kill or be killed.`;
+
+  const characters: Character[] = [
+    createCharacter(
+      "Rex",
+      3,
+      5,
+      bloodsportPrompt("Rex", "Luna, Vex, and Nova"),
+      {
+        hp: 10,
+        maxHp: 10,
+        inventory: [knife1],
+        equippedWeapon: knife1,
+      }
+    ),
+    createCharacter(
+      "Luna",
+      3,
+      9,
+      bloodsportPrompt("Luna", "Rex, Vex, and Nova"),
+      {
+        hp: 10,
+        maxHp: 10,
+        inventory: [knife2],
+        equippedWeapon: knife2,
+      }
+    ),
+    createCharacter(
+      "Vex",
+      16,
+      5,
+      bloodsportPrompt("Vex", "Rex, Luna, and Nova"),
+      {
+        hp: 10,
+        maxHp: 10,
+        inventory: [knife3],
+        equippedWeapon: knife3,
+      }
+    ),
+    createCharacter(
+      "Nova",
+      16,
+      9,
+      bloodsportPrompt("Nova", "Rex, Luna, and Vex"),
+      {
+        hp: 10,
+        maxHp: 10,
+        inventory: [knife4],
+        equippedWeapon: knife4,
+      }
+    ),
+  ];
+
+  return {
+    width,
+    height,
+    tiles,
+    rooms,
+    characters,
+    turn: 1,
+  };
+}

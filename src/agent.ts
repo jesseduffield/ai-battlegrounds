@@ -831,7 +831,7 @@ export async function getAgentDecision(
       ? `\nThis is a FOLLOW-UP action. Set "thought": null.`
       : "";
 
-  const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
+  const systemPrompt = `You are playing a character in a turn-based game on a 2D grid where (0,0) is in the top-left corner. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
 
 ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide your next action.${continuityNote}
 
@@ -847,7 +847,7 @@ ${moveAction}
 - WAIT: End turn. No parameters.
 
 Respond with JSON:
-- thought: REQUIRED on first action (what's on your mind). Optional on follow-up actions. Only use on follow up actions if acting on new information.
+- thought: REQUIRED on first action (what's on your mind). Optional on follow-up actions. Only use on follow up actions if acting on new information. Don't re-state something you already thought in the last turn. If you have nothing new to think, keep it VERY brief.
 - action: The action type
 - x, y: Coordinates if needed (null otherwise)
 - target: Target name if needed (null otherwise)

@@ -1,4 +1,4 @@
-import { createTownMap } from "./world-builder";
+import { createBloodsportMap } from "./world-builder";
 import {
   render,
   getCanvasSize,
@@ -1214,7 +1214,7 @@ function showApiKeyPrompt(): void {
 }
 
 function init(): void {
-  world = createTownMap();
+  world = createBloodsportMap();
 
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
