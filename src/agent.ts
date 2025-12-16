@@ -182,6 +182,8 @@ function formatKnowledge(
   const weaponName = knowledge.status.equippedWeapon?.name;
   const weaponDamage = knowledge.status.equippedWeapon?.damage ?? 1;
 
+  lines.push(`=== CURRENT TURN: ${world.turn} ===`);
+  lines.push(``);
   lines.push(`=== YOUR STATUS ===`);
   lines.push(`Name: ${character.name}`);
   lines.push(`HP: ${knowledge.status.hp}/${knowledge.status.maxHp}`);
@@ -297,19 +299,23 @@ function formatKnowledge(
             desc += ` [searched, contains: ${item.contents
               .map((c) => c.name)
               .join(", ")}]`;
+            if (adjacent)
+              desc += ` - can PICKUP ${position.x} ${position.y} "ItemName"`;
           } else {
             desc += ` [searched, empty]`;
           }
         } else {
           desc += ` [not searched]`;
+          if (adjacent) desc += ` - ADJACENT, can SEARCH`;
         }
-        if (adjacent) desc += ` - ADJACENT, can SEARCH`;
       } else if (item.type === "weapon") {
         desc += ` [weapon, ${item.damage} damage]`;
-        if (adjacent) desc += ` - ADJACENT, can PICKUP`;
+        if (adjacent)
+          desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
       } else if (item.type === "trap") {
         desc += ` [trap]`;
-        if (adjacent) desc += ` - ADJACENT, can PICKUP`;
+        if (adjacent)
+          desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
       } else {
         if (adjacent) desc += ` - ADJACENT`;
       }
@@ -378,9 +384,7 @@ function formatKnowledge(
     );
   }
   lines.push(`  - SEARCH container_name : Search adjacent container`);
-  lines.push(
-    `  - PICKUP item_name : Take item from adjacent searched container`
-  );
+  lines.push(`  - PICKUP x y item_name : Take item from tile at (x,y)`);
   lines.push(
     `  - EQUIP item_name : Equip weapon/clothing (cannot ATTACK same turn)`
   );
@@ -488,43 +492,78 @@ function parseJsonAction(
 
   // Validate action type
   if (!VALID_ACTION_TYPES.includes(actionType)) {
-    return { action: null, error: `Unknown action type: "${jsonResponse.action}"` };
+    return {
+      action: null,
+      error: `Unknown action type: "${jsonResponse.action}"`,
+    };
   }
 
   switch (actionType) {
     case "move":
       if (jsonResponse.x !== null && jsonResponse.y !== null) {
         return {
-          action: { type: "move", targetPosition: { x: jsonResponse.x, y: jsonResponse.y } },
+          action: {
+            type: "move",
+            targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+          },
           error: null,
         };
       } else if (jsonResponse.target) {
-        const targetPos = findTargetPosition(jsonResponse.target, knowledge, character);
+        const targetPos = findTargetPosition(
+          jsonResponse.target,
+          knowledge,
+          character
+        );
         if (targetPos) {
-          const bestTile = findBestTileToward(targetPos, reachableTiles, character.position);
+          const bestTile = findBestTileToward(
+            targetPos,
+            reachableTiles,
+            character.position
+          );
           if (bestTile) {
-            return { action: { type: "move", targetPosition: bestTile }, error: null };
+            return {
+              action: { type: "move", targetPosition: bestTile },
+              error: null,
+            };
           } else {
-            return { action: null, error: `MOVE TO "${jsonResponse.target}" failed: no reachable tiles` };
+            return {
+              action: null,
+              error: `MOVE TO "${jsonResponse.target}" failed: no reachable tiles`,
+            };
           }
         } else {
-          return { action: null, error: `MOVE TO "${jsonResponse.target}" failed: target not found` };
+          return {
+            action: null,
+            error: `MOVE TO "${jsonResponse.target}" failed: target not found`,
+          };
         }
       } else {
-        return { action: null, error: "MOVE requires x,y coordinates OR a target name" };
+        return {
+          action: null,
+          error: "MOVE requires x,y coordinates OR a target name",
+        };
       }
 
     case "attack":
       if (jsonResponse.target) {
         const target = knowledge.visible.characters.find(
           (c) =>
-            c.character.name.toLowerCase() === jsonResponse.target!.toLowerCase() ||
-            c.character.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+            c.character.name.toLowerCase() ===
+              jsonResponse.target!.toLowerCase() ||
+            c.character.name
+              .toLowerCase()
+              .includes(jsonResponse.target!.toLowerCase())
         );
         if (target) {
-          return { action: { type: "attack", targetCharacterId: target.character.id }, error: null };
+          return {
+            action: { type: "attack", targetCharacterId: target.character.id },
+            error: null,
+          };
         } else {
-          return { action: null, error: `ATTACK target "${jsonResponse.target}" not visible` };
+          return {
+            action: null,
+            error: `ATTACK target "${jsonResponse.target}" not visible`,
+          };
         }
       } else {
         return { action: null, error: "ATTACK requires a target name" };
@@ -534,19 +573,32 @@ function parseJsonAction(
       if (jsonResponse.target && jsonResponse.message) {
         const target = knowledge.visible.characters.find(
           (c) =>
-            c.character.name.toLowerCase() === jsonResponse.target!.toLowerCase() ||
-            c.character.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+            c.character.name.toLowerCase() ===
+              jsonResponse.target!.toLowerCase() ||
+            c.character.name
+              .toLowerCase()
+              .includes(jsonResponse.target!.toLowerCase())
         );
         if (target) {
           return {
-            action: { type: "talk", targetCharacterId: target.character.id, message: jsonResponse.message },
+            action: {
+              type: "talk",
+              targetCharacterId: target.character.id,
+              message: jsonResponse.message,
+            },
             error: null,
           };
         } else {
-          return { action: null, error: `TALK target "${jsonResponse.target}" not visible` };
+          return {
+            action: null,
+            error: `TALK target "${jsonResponse.target}" not visible`,
+          };
         }
       } else {
-        return { action: null, error: "TALK requires a target name and message" };
+        return {
+          action: null,
+          error: "TALK requires a target name and message",
+        };
       }
 
     case "search":
@@ -554,36 +606,49 @@ function parseJsonAction(
         const container = knowledge.visible.items.find(
           (i) =>
             i.item.type === "container" &&
-            i.item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+            i.item.name
+              .toLowerCase()
+              .includes(jsonResponse.target!.toLowerCase())
         );
         if (container) {
-          return { action: { type: "search_container", targetItemId: container.item.id }, error: null };
+          return {
+            action: {
+              type: "search_container",
+              targetItemId: container.item.id,
+            },
+            error: null,
+          };
         } else {
-          return { action: { type: "search_container", targetItemName: jsonResponse.target }, error: null };
+          return {
+            action: {
+              type: "search_container",
+              targetItemName: jsonResponse.target,
+            },
+            error: null,
+          };
         }
       } else {
         return { action: null, error: "SEARCH requires a container name" };
       }
 
     case "pickup":
-      if (jsonResponse.target) {
-        for (const visibleTile of knowledge.visible.tiles) {
-          for (const item of visibleTile.items) {
-            if (item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())) {
-              return { action: { type: "pick_up", targetItemId: item.id }, error: null };
-            }
-            if (item.type === "container" && item.contents) {
-              for (const content of item.contents) {
-                if (content.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())) {
-                  return { action: { type: "pick_up", targetItemId: content.id }, error: null };
-                }
-              }
-            }
-          }
-        }
-        return { action: { type: "pick_up", targetItemName: jsonResponse.target }, error: null };
+      if (
+        jsonResponse.x !== null &&
+        jsonResponse.y !== null &&
+        jsonResponse.target
+      ) {
+        return {
+          action: {
+            type: "pick_up",
+            targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+            targetItemName: jsonResponse.target,
+          },
+          error: null,
+        };
+      } else if (!jsonResponse.target) {
+        return { action: null, error: "PICKUP requires item name (target)" };
       } else {
-        return { action: null, error: "PICKUP requires an item name" };
+        return { action: null, error: "PICKUP requires coordinates (x, y)" };
       }
 
     case "drop":
@@ -592,9 +657,15 @@ function parseJsonAction(
           i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
         );
         if (item) {
-          return { action: { type: "drop", targetItemId: item.id }, error: null };
+          return {
+            action: { type: "drop", targetItemId: item.id },
+            error: null,
+          };
         } else {
-          return { action: { type: "drop", targetItemName: jsonResponse.target }, error: null };
+          return {
+            action: { type: "drop", targetItemName: jsonResponse.target },
+            error: null,
+          };
         }
       } else {
         return { action: null, error: "DROP requires an item name" };
@@ -606,9 +677,15 @@ function parseJsonAction(
           i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
         );
         if (item) {
-          return { action: { type: "equip", targetItemId: item.id }, error: null };
+          return {
+            action: { type: "equip", targetItemId: item.id },
+            error: null,
+          };
         } else {
-          return { action: { type: "equip", targetItemName: jsonResponse.target }, error: null };
+          return {
+            action: { type: "equip", targetItemName: jsonResponse.target },
+            error: null,
+          };
         }
       } else {
         return { action: null, error: "EQUIP requires an item name" };
@@ -618,22 +695,37 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "PLACE requires a trap name" };
       } else if (jsonResponse.x === null || jsonResponse.y === null) {
-        return { action: null, error: "PLACE requires x,y coordinates for adjacent tile" };
+        return {
+          action: null,
+          error: "PLACE requires x,y coordinates for adjacent tile",
+        };
       } else {
-        const trapsInInv = knowledge.status.inventory.filter((i) => i.type === "trap");
+        const trapsInInv = knowledge.status.inventory.filter(
+          (i) => i.type === "trap"
+        );
         if (trapsInInv.length === 0) {
-          return { action: null, error: "PLACE failed: No traps in inventory!" };
+          return {
+            action: null,
+            error: "PLACE failed: No traps in inventory!",
+          };
         }
         const item = trapsInInv.find((i) =>
           i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
         );
         if (item) {
           return {
-            action: { type: "place", targetItemId: item.id, targetPosition: { x: jsonResponse.x, y: jsonResponse.y } },
+            action: {
+              type: "place",
+              targetItemId: item.id,
+              targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+            },
             error: null,
           };
         } else {
-          return { action: null, error: `PLACE failed: "${jsonResponse.target}" not in inventory` };
+          return {
+            action: null,
+            error: `PLACE failed: "${jsonResponse.target}" not in inventory`,
+          };
         }
       }
 
@@ -681,7 +773,12 @@ export async function getAgentDecision(
     }
   });
 
-  let situationDescription = formatKnowledge(world, character, knowledge, hasMoved);
+  let situationDescription = formatKnowledge(
+    world,
+    character,
+    knowledge,
+    hasMoved
+  );
 
   // Add turn history at the top
   if (turnHistory.length > 0) {
@@ -689,7 +786,9 @@ export async function getAgentDecision(
     for (let i = 0; i < turnHistory.length; i++) {
       try {
         const parsed = JSON.parse(turnHistory[i].response);
-        const thought = parsed.reasoning ? `You thought: "${parsed.reasoning}"` : "";
+        const thought = parsed.reasoning
+          ? `You thought: "${parsed.reasoning}"`
+          : "";
         const action = parsed.action || "unknown";
         let actionDesc = action;
         if (action === "MOVE" && parsed.x !== null && parsed.y !== null) {
@@ -697,7 +796,9 @@ export async function getAgentDecision(
         } else if (parsed.target) {
           actionDesc = `${action} ${parsed.target}`;
         }
-        historySection += `${i + 1}. ${thought ? thought + " → " : ""}${actionDesc}\n`;
+        historySection += `${i + 1}. ${
+          thought ? thought + " → " : ""
+        }${actionDesc}\n`;
         historySection += `   Result: ${turnHistory[i].result}\n\n`;
       } catch {
         historySection += `${i + 1}. ${turnHistory[i].response}\n`;
@@ -715,7 +816,8 @@ export async function getAgentDecision(
   }
 
   if (lastFailure) {
-    situationDescription = `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}\n\n` + situationDescription;
+    situationDescription =
+      `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}\n\n` + situationDescription;
   }
 
   // Build available actions list with crossed-out unavailable ones
@@ -724,9 +826,10 @@ export async function getAgentDecision(
     : "- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates)";
 
   // Add continuity guidance if there's history
-  const continuityNote = turnHistory.length > 0
-    ? `\nThis is a FOLLOW-UP action. You MUST set "reasoning": null.`
-    : "";
+  const continuityNote =
+    turnHistory.length > 0
+      ? `\nThis is a FOLLOW-UP action. You MUST set "reasoning": null.`
+      : "";
 
   const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
 
@@ -737,7 +840,7 @@ ${moveAction}
 - ATTACK: Attack ADJACENT character (1 tile away). Requires target name. Ends turn.
 - TALK: Speak to character within 2 tiles. Requires target and message. Ends turn.
 - SEARCH: Search adjacent container. Requires target (container name).
-- PICKUP: Pick up item from adjacent container/ground. Requires target (item name).
+- PICKUP: Pick up item at coordinates. Requires x, y, and target (item name).
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
 - DROP: Drop item from inventory. Requires target (item name).
@@ -751,13 +854,15 @@ Respond with JSON:
 - message: Message for TALK (null otherwise)
 
 EXAMPLES:
-${hasMoved
-  ? `{"reasoning": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
+${
+  hasMoved
+    ? `{"reasoning": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
 {"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
 {"reasoning": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
-  : `{"reasoning": "Close the gap!", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
+    : `{"reasoning": "Close the gap!", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
 {"reasoning": "Die!", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`}`;
+{"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`
+}`;
 
   const userPrompt = `${character.personalityPrompt}
 

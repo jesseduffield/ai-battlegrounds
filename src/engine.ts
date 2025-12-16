@@ -649,46 +649,71 @@ export function executeAction(
     }
 
     case "pick_up": {
-      if (!action.targetItemId) {
-        return { success: false, message: "No item specified", events };
+      // Require both coordinates and item name
+      if (!action.targetPosition) {
+        return {
+          success: false,
+          message: "PICKUP requires coordinates (x, y)",
+          events,
+        };
+      }
+      if (!action.targetItemId && !action.targetItemName) {
+        return { success: false, message: "PICKUP requires item name", events };
       }
 
-      const pickupPositions = [
-        character.position,
-        { x: character.position.x - 1, y: character.position.y },
-        { x: character.position.x + 1, y: character.position.y },
-        { x: character.position.x, y: character.position.y - 1 },
-        { x: character.position.x, y: character.position.y + 1 },
-      ];
+      const pos = action.targetPosition;
+
+      // Must be adjacent or on same tile
+      const dist =
+        Math.abs(pos.x - character.position.x) +
+        Math.abs(pos.y - character.position.y);
+      if (dist > 1) {
+        return {
+          success: false,
+          message: "Too far to pick up - must be adjacent",
+          events,
+        };
+      }
+
+      if (
+        pos.x < 0 ||
+        pos.x >= world.width ||
+        pos.y < 0 ||
+        pos.y >= world.height
+      ) {
+        return { success: false, message: "Invalid position", events };
+      }
+
+      const tile = world.tiles[pos.y][pos.x];
+
+      // Helper to match item by ID or name
+      const matchesItem = (i: Item) => {
+        if (action.targetItemId) return i.id === action.targetItemId;
+        if (action.targetItemName) {
+          return i.name
+            .toLowerCase()
+            .includes(action.targetItemName.toLowerCase());
+        }
+        return false;
+      };
 
       let item: Item | undefined;
       let fromContainer: Item | undefined;
 
-      for (const pos of pickupPositions) {
-        if (
-          pos.x < 0 ||
-          pos.x >= world.width ||
-          pos.y < 0 ||
-          pos.y >= world.height
-        ) {
-          continue;
-        }
-        const tile = world.tiles[pos.y][pos.x];
+      // Check items on tile
+      const tileItemIndex = tile.items.findIndex(matchesItem);
+      if (tileItemIndex >= 0) {
+        item = tile.items[tileItemIndex];
+        tile.items.splice(tileItemIndex, 1);
+      }
 
-        const tileItemIndex = tile.items.findIndex(
-          (i) => i.id === action.targetItemId
-        );
-        if (tileItemIndex >= 0) {
-          item = tile.items[tileItemIndex];
-          tile.items.splice(tileItemIndex, 1);
-          break;
-        }
-
+      // Check inside searched containers on tile
+      if (!item) {
         for (const container of tile.items.filter(
-          (i) => i.type === "container"
+          (i) => i.type === "container" && i.searched
         )) {
           const containerItemIndex = (container.contents ?? []).findIndex(
-            (i) => i.id === action.targetItemId
+            matchesItem
           );
           if (containerItemIndex >= 0) {
             item = container.contents![containerItemIndex];
@@ -697,7 +722,6 @@ export function executeAction(
             break;
           }
         }
-        if (item) break;
       }
 
       if (!item) {

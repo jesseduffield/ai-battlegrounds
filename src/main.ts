@@ -603,6 +603,8 @@ async function processTurn(): Promise<void> {
     let actionsThisTurn = 0;
     const maxActionsPerTurn = 3;
     let lastFailure: string | undefined = undefined;
+    let errorRetries = 0;
+    const maxErrorRetries = 2;
     const turnHistory: { response: string; result: string }[] = [];
 
     while (!turnEnded && current.alive && actionsThisTurn < maxActionsPerTurn) {
@@ -627,6 +629,31 @@ async function processTurn(): Promise<void> {
         fullResponse,
         error ? [error] : undefined
       );
+
+      // If the agent had a parsing error, retry with that error as feedback
+      if (error) {
+        errorRetries++;
+        if (errorRetries <= maxErrorRetries) {
+          lastFailure = error;
+          if (fullResponse) {
+            turnHistory.push({
+              response: fullResponse,
+              result: `ERROR: ${error}`,
+            });
+          }
+          continue;
+        }
+        // Too many errors, end turn
+        const evt: GameEvent = {
+          turn: world.turn,
+          type: "move",
+          actorId: current.id,
+          description: `${current.name}: turn ended due to repeated errors`,
+        };
+        allEvents.push(evt);
+        addLogEntry(evt);
+        break;
+      }
 
       lastFailure = undefined;
 
