@@ -429,10 +429,10 @@ const actionResponseSchema = {
   schema: {
     type: "object",
     properties: {
-      reasoning: {
+      thought: {
         type: ["string", "null"],
         description:
-          "FIRST action: short emotional thought. Follow-up actions: null.",
+          "What flashes through your mind RIGHT NOW. Raw, emotional, in-the-moment. Not an explanation. null for follow-ups.",
       },
       action: {
         type: "string",
@@ -467,13 +467,13 @@ const actionResponseSchema = {
         description: "Message content for TALK (null if not applicable)",
       },
     },
-    required: ["reasoning", "action", "x", "y", "target", "message"],
+    required: ["thought", "action", "x", "y", "target", "message"],
     additionalProperties: false,
   },
 };
 
 type JsonResponse = {
-  reasoning: string | null;
+  thought: string | null;
   action: string;
   x: number | null;
   y: number | null;
@@ -749,7 +749,7 @@ export async function getAgentDecision(
   lastFailure?: string
 ): Promise<{
   action: Action;
-  reasoning: string | null;
+  reasoning: string | null; // kept as "reasoning" externally for compatibility
   fullPrompt?: string;
   fullResponse?: string;
   error?: string;
@@ -786,8 +786,8 @@ export async function getAgentDecision(
     for (let i = 0; i < turnHistory.length; i++) {
       try {
         const parsed = JSON.parse(turnHistory[i].response);
-        const thought = parsed.reasoning
-          ? `You thought: "${parsed.reasoning}"`
+        const thought = parsed.thought
+          ? `You thought: "${parsed.thought}"`
           : "";
         const action = parsed.action || "unknown";
         let actionDesc = action;
@@ -807,10 +807,10 @@ export async function getAgentDecision(
     }
     if (hasMoved) {
       historySection += `⛔ MOVE UNAVAILABLE. Choose: SEARCH, PICKUP, EQUIP, ATTACK, TALK, or WAIT.\n`;
-      historySection += `⚠️ SET "reasoning": null (this is a follow-up action)\n`;
+      historySection += `⚠️ SET "thought": null (this is a follow-up action)\n`;
     } else {
       historySection += `You can still take more actions before ending your turn.\n`;
-      historySection += `⚠️ SET "reasoning": null for follow-up actions.\n`;
+      historySection += `⚠️ SET "thought": null for follow-up actions.\n`;
     }
     situationDescription = historySection + `\n` + situationDescription;
   }
@@ -828,7 +828,7 @@ export async function getAgentDecision(
   // Add continuity guidance if there's history
   const continuityNote =
     turnHistory.length > 0
-      ? `\nThis is a FOLLOW-UP action. You MUST set "reasoning": null.`
+      ? `\nThis is a FOLLOW-UP action. You MUST set "thought": null.`
       : "";
 
   const systemPrompt = `You are playing a character in a turn-based game. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
@@ -847,7 +847,7 @@ ${moveAction}
 - WAIT: End turn. No parameters.
 
 Respond with JSON:
-- reasoning: FIRST action = short thought. Follow-ups = null.
+- thought: Short thought. null for follow-ups.
 - action: The action type
 - x, y: Coordinates if needed (null otherwise)
 - target: Target name if needed (null otherwise)
@@ -856,12 +856,12 @@ Respond with JSON:
 EXAMPLES:
 ${
   hasMoved
-    ? `{"reasoning": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
-{"reasoning": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
-    : `{"reasoning": "Close the gap!", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
-{"reasoning": "Die!", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"reasoning": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`
+    ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
+{"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
+{"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
+    : `{"thought": "He's getting closer.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
+{"thought": "Now!", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
+{"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`
 }`;
 
   const userPrompt = `${character.personalityPrompt}
@@ -918,7 +918,7 @@ What do you do?`;
       console.warn(`No valid action parsed from: ${content}`);
       return {
         action: { type: "wait" },
-        reasoning: jsonResponse.reasoning || "(No valid action)",
+        reasoning: jsonResponse.thought || "(No valid action)",
         fullPrompt,
         fullResponse: content,
         error: error || "No valid action in response",
@@ -927,7 +927,7 @@ What do you do?`;
 
     return {
       action,
-      reasoning: jsonResponse.reasoning,
+      reasoning: jsonResponse.thought, // "thought" in JSON, "reasoning" externally
       fullPrompt,
       fullResponse: content,
       error: error || undefined,
