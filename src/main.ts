@@ -16,7 +16,7 @@ import {
   addMemory,
 } from "./engine";
 import { getAgentDecision, initializeAgent } from "./agent";
-import type { World, Character, GameEvent, Position } from "./types";
+import type { World, Character, GameEvent, Position, Action } from "./types";
 
 type WorldSnapshot = {
   turn: number;
@@ -48,6 +48,8 @@ let currentCharacterIndex = 0;
 let isProcessingTurn = false;
 let autoPlayInterval: number | null = null;
 let fastMode = false;
+let playerControlledCharacter: string | null = null; // Character name or null for AI-only
+let awaitingPlayerAction = false;
 let allEvents: GameEvent[] = [];
 let allAgentDecisions: AgentDecisionLog[] = [];
 let chronologicalLog: LogEntry[] = [];
@@ -444,6 +446,12 @@ function handleCanvasClick(event: MouseEvent): void {
   const y = event.clientY - rect.top;
   const tilePos = getTileFromPixel(x, y);
 
+  // If player is selecting an action target, handle that first
+  if (awaitingPlayerAction && selectedAction) {
+    executePlayerActionFromClick(tilePos.x, tilePos.y);
+    return;
+  }
+
   const displayWorld = getWorldForDisplay();
   showInspector(displayWorld, tilePos);
 }
@@ -578,6 +586,18 @@ async function processTurn(): Promise<void> {
       autoPlayInterval = null;
       updateAutoPlayButton();
     }
+    return;
+  }
+
+  // If this is a player-controlled character, show actions UI instead of AI
+  if (current.name === playerControlledCharacter) {
+    // Stop autoplay if running
+    if (autoPlayInterval) {
+      clearInterval(autoPlayInterval);
+      autoPlayInterval = null;
+      updateAutoPlayButton();
+    }
+    showPlayerActions();
     return;
   }
 
@@ -805,6 +825,20 @@ async function processTurn(): Promise<void> {
         }
       }
 
+      // Handle failures for non-turn-ending actions (search, pickup, equip, drop, place)
+      const nonEndingActions = [
+        "search_container",
+        "pick_up",
+        "equip",
+        "drop",
+        "place",
+        "unequip",
+      ];
+      if (nonEndingActions.includes(action.type) && !result.success) {
+        lastFailure = `${action.type.toUpperCase()} failed: ${result.message}`;
+        continue;
+      }
+
       // Show speech bubble for talk actions
       if (action.type === "talk" && result.success && action.message) {
         showThoughtBubble(current, action.message, "speaking");
@@ -814,12 +848,19 @@ async function processTurn(): Promise<void> {
         hideThoughtBubble();
       }
 
-      // Turn-ending actions
-      if (
-        action.type === "attack" ||
-        action.type === "talk" ||
-        action.type === "wait"
-      ) {
+      // Turn-ending actions - only end turn if successful (or wait)
+      if (action.type === "attack" || action.type === "talk") {
+        if (result.success) {
+          turnEnded = true;
+        } else {
+          lastFailure = `${action.type.toUpperCase()} failed: ${
+            result.message
+          }`;
+          continue;
+        }
+      }
+
+      if (action.type === "wait") {
         turnEnded = true;
       }
 
@@ -917,6 +958,389 @@ function toggleSpeed(): void {
     btn.textContent = fastMode ? "🐇 Fast" : "🐢 Slow";
   }
 }
+
+function togglePlayerControl(): void {
+  const btn = document.getElementById("player-control-btn");
+  const characters = world.characters.filter((c) => c.alive);
+
+  if (playerControlledCharacter) {
+    // Turn off player control
+    playerControlledCharacter = null;
+    if (btn) btn.textContent = "🎮 Watch";
+    hidePlayerActions();
+  } else {
+    // Cycle through characters or pick first alive one
+    const currentChar = characters[0];
+    if (currentChar) {
+      playerControlledCharacter = currentChar.name;
+      if (btn) btn.textContent = `🎮 ${currentChar.name}`;
+      updatePlayerActionsUI();
+    }
+  }
+}
+
+function cyclePlayerCharacter(): void {
+  const characters = world.characters.filter((c) => c.alive);
+  if (characters.length === 0) return;
+
+  const currentIndex = characters.findIndex(
+    (c) => c.name === playerControlledCharacter
+  );
+  const nextIndex = (currentIndex + 1) % characters.length;
+  playerControlledCharacter = characters[nextIndex].name;
+
+  const btn = document.getElementById("player-control-btn");
+  if (btn) btn.textContent = `🎮 ${playerControlledCharacter}`;
+  updatePlayerActionsUI();
+}
+
+function showPlayerActions(): void {
+  const panel = document.getElementById("player-actions");
+  if (panel) panel.style.display = "block";
+  awaitingPlayerAction = true;
+  updatePlayerActionsUI();
+}
+
+function hidePlayerActions(): void {
+  const panel = document.getElementById("player-actions");
+  if (panel) panel.style.display = "none";
+  awaitingPlayerAction = false;
+
+  // Clear any selection
+  document.querySelectorAll(".action-btn").forEach((btn) => {
+    btn.classList.remove("selected");
+  });
+  const details = document.getElementById("action-details");
+  if (details) details.innerHTML = "";
+}
+
+let selectedAction: string | null = null;
+
+function updatePlayerActionsUI(): void {
+  const current = world.characters[currentCharacterIndex];
+  if (!current || current.name !== playerControlledCharacter) {
+    hidePlayerActions();
+    return;
+  }
+
+  showPlayerActions();
+}
+
+function selectPlayerAction(actionType: string): void {
+  selectedAction = actionType;
+
+  document.querySelectorAll(".action-btn").forEach((btn) => {
+    btn.classList.remove("selected");
+    if ((btn as HTMLElement).dataset.action === actionType) {
+      btn.classList.add("selected");
+    }
+  });
+
+  const details = document.getElementById("action-details");
+  if (!details) return;
+
+  const current = world.characters[currentCharacterIndex];
+  if (!current) return;
+
+  switch (actionType) {
+    case "move":
+      details.innerHTML = `<p>Click a tile to move there</p>`;
+      break;
+    case "attack":
+      const adjacent = world.characters.filter(
+        (c) =>
+          c.alive &&
+          c.id !== current.id &&
+          Math.abs(c.position.x - current.position.x) +
+            Math.abs(c.position.y - current.position.y) ===
+            1
+      );
+      if (adjacent.length === 0) {
+        details.innerHTML = `<p>No adjacent targets</p>`;
+      } else {
+        details.innerHTML = adjacent
+          .map(
+            (c) =>
+              `<button class="action-btn" onclick="window.executePlayerAction('attack', '${c.name}')">${c.name}</button>`
+          )
+          .join(" ");
+      }
+      break;
+    case "talk":
+      const nearby = world.characters.filter(
+        (c) =>
+          c.alive &&
+          c.id !== current.id &&
+          Math.abs(c.position.x - current.position.x) +
+            Math.abs(c.position.y - current.position.y) <=
+            4
+      );
+      if (nearby.length === 0) {
+        details.innerHTML = `<p>No one nearby</p>`;
+      } else {
+        details.innerHTML = `
+          <select id="talk-target">${nearby
+            .map((c) => `<option value="${c.name}">${c.name}</option>`)
+            .join("")}</select>
+          <input type="text" id="talk-message" placeholder="Message..." style="width: 100%;">
+          <button class="action-btn" onclick="window.executePlayerTalk()">Send</button>
+        `;
+      }
+      break;
+    case "search":
+      details.innerHTML = `<p>Click an adjacent container to search</p>`;
+      break;
+    case "pickup":
+      details.innerHTML = `<p>Click an adjacent item to pick up</p>`;
+      break;
+    case "equip":
+      const weapons = current.inventory.filter((i) => i.type === "weapon");
+      if (weapons.length === 0) {
+        details.innerHTML = `<p>No weapons in inventory</p>`;
+      } else {
+        details.innerHTML = weapons
+          .map(
+            (w) =>
+              `<button class="action-btn" onclick="window.executePlayerAction('equip', '${w.name}')">${w.name}</button>`
+          )
+          .join(" ");
+      }
+      break;
+    case "drop":
+      if (current.inventory.length === 0) {
+        details.innerHTML = `<p>No items in inventory</p>`;
+      } else {
+        details.innerHTML = current.inventory
+          .map(
+            (item) =>
+              `<button class="action-btn" onclick="window.executePlayerAction('drop', '${item.name}')">${item.name}</button>`
+          )
+          .join(" ");
+      }
+      break;
+    case "place":
+      const traps = current.inventory.filter((i) => i.type === "trap");
+      if (traps.length === 0) {
+        details.innerHTML = `<p>No traps in inventory</p>`;
+      } else {
+        details.innerHTML = `<p>Click an adjacent tile to place: ${traps
+          .map((t) => t.name)
+          .join(", ")}</p>`;
+      }
+      break;
+    case "wait":
+      details.innerHTML = `<button class="action-btn" onclick="window.executePlayerAction('wait')">End Turn</button>`;
+      break;
+    default:
+      details.innerHTML = "";
+  }
+}
+
+async function executePlayerActionFromClick(
+  x: number,
+  y: number
+): Promise<void> {
+  if (!awaitingPlayerAction || !selectedAction) return;
+
+  const current = world.characters[currentCharacterIndex];
+  if (!current || current.name !== playerControlledCharacter) return;
+
+  let action: Action | null = null;
+
+  if (selectedAction === "move") {
+    action = { type: "move", targetPosition: { x, y } };
+  } else if (selectedAction === "search") {
+    const tile = world.tiles[y]?.[x];
+    if (tile) {
+      const container = tile.items.find((i) => i.type === "container");
+      if (container) {
+        action = { type: "search_container", targetItemId: container.id };
+      }
+    }
+  } else if (selectedAction === "pickup") {
+    const tile = world.tiles[y]?.[x];
+    if (tile) {
+      // Check for items on ground
+      let item = tile.items.find((i) => i.type !== "container");
+      if (item) {
+        action = {
+          type: "pick_up",
+          targetPosition: { x, y },
+          targetItemName: item.name,
+        };
+      } else {
+        // Check for items inside searched containers
+        for (const container of tile.items.filter(
+          (i) => i.type === "container" && i.searched
+        )) {
+          if (container.contents && container.contents.length > 0) {
+            item = container.contents[0];
+            action = {
+              type: "pick_up",
+              targetPosition: { x, y },
+              targetItemName: item.name,
+            };
+            break;
+          }
+        }
+      }
+    }
+  } else if (selectedAction === "place") {
+    const trap = current.inventory.find((i) => i.type === "trap");
+    if (trap) {
+      action = {
+        type: "place",
+        targetPosition: { x, y },
+        targetItemId: trap.id,
+      };
+    }
+  }
+
+  if (action) {
+    await executePlayerAction(action);
+  }
+}
+
+async function executePlayerAction(
+  action: Action | string,
+  target?: string
+): Promise<void> {
+  const current = world.characters[currentCharacterIndex];
+  if (!current) return;
+
+  let actualAction: Action;
+
+  if (typeof action === "string") {
+    switch (action) {
+      case "attack":
+        const attackTarget = world.characters.find((c) => c.name === target);
+        if (!attackTarget) return;
+        actualAction = { type: "attack", targetCharacterId: attackTarget.id };
+        break;
+      case "equip":
+        const equipItem = current.inventory.find((i) => i.name === target);
+        if (!equipItem) return;
+        actualAction = { type: "equip", targetItemId: equipItem.id };
+        break;
+      case "drop":
+        const dropItem = current.inventory.find((i) => i.name === target);
+        if (!dropItem) return;
+        actualAction = { type: "drop", targetItemId: dropItem.id };
+        break;
+      case "wait":
+        actualAction = { type: "wait" };
+        break;
+      default:
+        return;
+    }
+  } else {
+    actualAction = action;
+  }
+
+  // Execute the action
+  const result = executeAction(world, current, actualAction);
+
+  // Add events to log
+  for (const evt of result.events) {
+    allEvents.push(evt);
+    addLogEntry(evt);
+  }
+
+  // If action failed, show error and let player retry
+  if (!result.success) {
+    const details = document.getElementById("action-details");
+    if (details) {
+      details.innerHTML = `<p style="color: var(--accent-red);">⚠️ ${result.message}</p>`;
+    }
+    // Keep actions panel open for retry
+    selectedAction = null;
+    updateUI();
+    return;
+  }
+
+  hidePlayerActions();
+  awaitingPlayerAction = false;
+
+  // Handle animations
+  if (result.animationData) {
+    // Play animation (simplified - could expand)
+    renderWorld();
+  }
+
+  updateUI();
+
+  // If wait or turn-ending action, advance turn
+  if (
+    actualAction.type === "wait" ||
+    actualAction.type === "attack" ||
+    actualAction.type === "talk"
+  ) {
+    await advanceToNextCharacter();
+  } else {
+    // Show actions again for follow-up
+    showPlayerActions();
+    selectedAction = null;
+  }
+}
+
+async function executePlayerTalk(): Promise<void> {
+  const targetSelect = document.getElementById(
+    "talk-target"
+  ) as HTMLSelectElement;
+  const messageInput = document.getElementById(
+    "talk-message"
+  ) as HTMLInputElement;
+
+  if (!targetSelect || !messageInput) return;
+
+  const targetName = targetSelect.value;
+  const message = messageInput.value;
+
+  const target = world.characters.find((c) => c.name === targetName);
+  if (!target || !message) return;
+
+  await executePlayerAction({
+    type: "talk",
+    targetCharacterId: target.id,
+    message,
+  });
+}
+
+async function advanceToNextCharacter(): Promise<void> {
+  currentCharacterIndex++;
+
+  // Check if round is complete
+  while (
+    currentCharacterIndex < world.characters.length &&
+    !world.characters[currentCharacterIndex].alive
+  ) {
+    currentCharacterIndex++;
+  }
+
+  if (currentCharacterIndex >= world.characters.length) {
+    // New turn
+    world.turn++;
+    currentCharacterIndex = 0;
+    while (
+      currentCharacterIndex < world.characters.length &&
+      !world.characters[currentCharacterIndex].alive
+    ) {
+      currentCharacterIndex++;
+    }
+  }
+
+  updateUI();
+
+  // Check if it's player's turn
+  const next = world.characters[currentCharacterIndex];
+  if (next && next.name === playerControlledCharacter && next.alive) {
+    showPlayerActions();
+  }
+}
+
+// Expose functions to window for onclick handlers
+(window as any).executePlayerAction = executePlayerAction;
+(window as any).executePlayerTalk = executePlayerTalk;
 
 function exportLogs(): void {
   const lines: string[] = [];
@@ -1233,6 +1657,7 @@ function init(): void {
   saveSnapshot();
   renderWorld();
   updateUI();
+  hidePlayerActions(); // Start with player actions hidden
 
   canvas.addEventListener("click", handleCanvasClick);
 
@@ -1248,6 +1673,21 @@ function init(): void {
 
   const speedToggleBtn = document.getElementById("speed-toggle-btn");
   speedToggleBtn?.addEventListener("click", toggleSpeed);
+
+  const playerControlBtn = document.getElementById("player-control-btn");
+  playerControlBtn?.addEventListener("click", togglePlayerControl);
+  playerControlBtn?.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    cyclePlayerCharacter();
+  });
+
+  // Action button listeners
+  document.querySelectorAll(".action-btn[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = (btn as HTMLElement).dataset.action;
+      if (action) selectPlayerAction(action);
+    });
+  });
 
   const exportLogsBtn = document.getElementById("export-logs-btn");
   exportLogsBtn?.addEventListener("click", exportLogs);

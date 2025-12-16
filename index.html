@@ -430,6 +430,58 @@
       cursor: not-allowed;
     }
 
+    .player-actions {
+      background: var(--bg-panel-light);
+      border-top: 1px solid var(--accent-green);
+      padding: 0;
+    }
+
+    .player-actions .panel-header {
+      background: var(--accent-green);
+      color: #000;
+      font-weight: 600;
+    }
+
+    .player-actions .panel-content {
+      padding: 0.75rem;
+    }
+
+    .action-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .action-btn {
+      flex: 0 0 auto;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+    }
+
+    .action-btn:hover {
+      border-color: var(--accent-green);
+    }
+
+    .action-btn.selected {
+      background: var(--accent-green);
+      color: #000;
+      border-color: var(--accent-green);
+    }
+
+    #action-details {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+
+    #action-details input, #action-details select {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      margin: 0.25rem 0;
+    }
+
     /* Responsive: collapse to 2 columns on smaller screens */
     @media (max-width: 1200px) {
       main {
@@ -541,8 +593,29 @@
         </div>
         <div class="button-row">
           <button id="speed-toggle-btn" title="Toggle game speed">🐢 Slow</button>
+          <button id="player-control-btn" title="Control a character">🎮 Watch</button>
+        </div>
+        <div class="button-row">
           <button id="export-logs-btn" title="Copy full logs to clipboard">📋 Full</button>
           <button id="export-compact-btn" title="Copy compact logs to clipboard">📋 Compact</button>
+        </div>
+      </div>
+
+      <div class="player-actions" id="player-actions" style="display: none;">
+        <div class="panel-header">Your Actions</div>
+        <div class="panel-content" id="player-actions-content">
+          <div class="action-buttons">
+            <button class="action-btn" data-action="move">Move</button>
+            <button class="action-btn" data-action="attack">Attack</button>
+            <button class="action-btn" data-action="talk">Talk</button>
+            <button class="action-btn" data-action="search">Search</button>
+            <button class="action-btn" data-action="pickup">Pickup</button>
+            <button class="action-btn" data-action="drop">Drop</button>
+            <button class="action-btn" data-action="equip">Equip</button>
+            <button class="action-btn" data-action="place">Place</button>
+            <button class="action-btn" data-action="wait">Wait</button>
+          </div>
+          <div id="action-details" style="margin-top: 0.5rem;"></div>
         </div>
       </div>
     </div>
