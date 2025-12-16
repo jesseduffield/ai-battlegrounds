@@ -427,6 +427,31 @@ function drawItem(
     ctx.stroke();
     ctx.fillStyle = "#654";
     ctx.fillRect(px, py + 8, 4, 4);
+  } else if (item.type === "contract") {
+    // Draw a blood-red scroll
+    const scrollX = px + 2;
+    const scrollY = py + 2;
+    const scrollW = 10;
+    const scrollH = 12;
+
+    // Scroll body (parchment color)
+    ctx.fillStyle = "#d4b896";
+    ctx.fillRect(scrollX, scrollY + 2, scrollW, scrollH - 4);
+
+    // Scroll rolls at top and bottom
+    ctx.fillStyle = "#8b0000"; // Dark red
+    ctx.beginPath();
+    ctx.arc(scrollX + scrollW / 2, scrollY + 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(scrollX + scrollW / 2, scrollY + scrollH - 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Blood drop/seal
+    ctx.fillStyle = "#b00000";
+    ctx.beginPath();
+    ctx.arc(scrollX + scrollW / 2, scrollY + scrollH / 2, 2, 0, Math.PI * 2);
+    ctx.fill();
   } else {
     ctx.beginPath();
     ctx.arc(px + 6, py + 6, 5, 0, Math.PI * 2);

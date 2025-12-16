@@ -24,6 +24,7 @@ function createTestWorld(width: number, height: number): World {
     characters: [],
     rooms: [],
     turn: 0,
+    activeContracts: [],
   };
 }
 

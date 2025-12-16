@@ -15,7 +15,7 @@ import {
   getVisibleTiles,
   addMemory,
 } from "./engine";
-import { getAgentDecision, initializeAgent } from "./agent";
+import { getAgentDecision, initializeAgent, judgeContract } from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
 
 type WorldSnapshot = {
@@ -99,6 +99,62 @@ function getWorldForDisplay(): World {
 
 function getAliveCharacters(w: World = world): Character[] {
   return w.characters.filter((c) => c.alive);
+}
+
+async function processExpiredContracts(): Promise<void> {
+  const expiredContracts = world.activeContracts.filter(
+    (c) => c.expiryTurn === world.turn
+  );
+
+  for (const contract of expiredContracts) {
+    // Remove from active contracts
+    const idx = world.activeContracts.indexOf(contract);
+    if (idx >= 0) {
+      world.activeContracts.splice(idx, 1);
+    }
+
+    // Judge the contract
+    const verdict = await judgeContract(contract, allEvents, world);
+
+    // Log the judgment
+    const judgmentEvent: GameEvent = {
+      turn: world.turn,
+      type: "contract_judged",
+      actorId: "",
+      description: `⚖️ THE GREAT JUDGE speaks on the contract between ${contract.issuerName} and ${contract.targetName}: "${verdict.verdict}"`,
+      message: verdict.verdict,
+    };
+    allEvents.push(judgmentEvent);
+    addLogEntry(judgmentEvent);
+
+    // Kill violators
+    for (const violatorName of verdict.violators) {
+      const violator = world.characters.find(
+        (c) => c.name.toLowerCase() === violatorName.toLowerCase() && c.alive
+      );
+      if (violator) {
+        violator.alive = false;
+        violator.hp = 0;
+
+        const deathEvent: GameEvent = {
+          turn: world.turn,
+          type: "contract_violation",
+          actorId: violator.id,
+          description: `💀 ${violator.name} is struck dead by divine judgment for violating the Blood Contract!`,
+        };
+        allEvents.push(deathEvent);
+        addLogEntry(deathEvent);
+
+        // Drop their items
+        const tile = world.tiles[violator.position.y][violator.position.x];
+        for (const item of violator.inventory) {
+          tile.items.push(item);
+        }
+        violator.inventory = [];
+        violator.equippedWeapon = undefined;
+      }
+    }
+  }
 }
 
 function getCurrentCharacter(): Character | null {
@@ -910,6 +966,8 @@ async function processTurn(): Promise<void> {
     if (currentCharacterIndex >= alive.length) {
       currentCharacterIndex = 0;
       world.turn++;
+      // Check for expired contracts at the start of each new turn
+      await processExpiredContracts();
     }
 
     renderWorld();
@@ -1128,6 +1186,69 @@ function selectPlayerAction(actionType: string): void {
           .join(", ")}</p>`;
       }
       break;
+    case "contract":
+      const otherChars = world.characters.filter(
+        (c) => c.alive && c.id !== current.id
+      );
+      if (otherChars.length === 0) {
+        details.innerHTML = `<p>No other characters to contract with</p>`;
+      } else {
+        details.innerHTML = `
+          <p>Issue Blood Contract:</p>
+          <select id="contract-target">${otherChars
+            .map((c) => `<option value="${c.name}">${c.name}</option>`)
+            .join("")}</select>
+          <input type="number" id="contract-expiry" placeholder="Expiry (1-20 turns)" min="1" max="20" value="10" style="width: 100%;">
+          <input type="text" id="contract-terms" placeholder="Terms, e.g. 'Neither attacks the other'" style="width: 100%;">
+          <p style="font-size: 0.7rem;">Click adjacent tile to place</p>
+        `;
+      }
+      break;
+    case "sign":
+      const nearbyContracts: {
+        item: (typeof world.tiles)[0][0]["items"][0];
+        pos: Position;
+      }[] = [];
+      const adjPositions = [
+        current.position,
+        { x: current.position.x - 1, y: current.position.y },
+        { x: current.position.x + 1, y: current.position.y },
+        { x: current.position.x, y: current.position.y - 1 },
+        { x: current.position.x, y: current.position.y + 1 },
+      ];
+      for (const pos of adjPositions) {
+        if (
+          pos.x < 0 ||
+          pos.x >= world.width ||
+          pos.y < 0 ||
+          pos.y >= world.height
+        )
+          continue;
+        const tile = world.tiles[pos.y][pos.x];
+        for (const item of tile.items) {
+          if (
+            item.type === "contract" &&
+            item.contract?.targetId === current.id
+          ) {
+            nearbyContracts.push({ item, pos });
+          }
+        }
+      }
+      if (nearbyContracts.length === 0) {
+        details.innerHTML = `<p>No contracts addressed to you nearby</p>`;
+      } else {
+        details.innerHTML = nearbyContracts
+          .map(({ item }) => {
+            const c = item.contract!;
+            return `<div style="margin-bottom: 0.5rem;">
+              <p><strong>From ${c.issuerName}:</strong> "${c.contents}"</p>
+              <p style="font-size: 0.7rem;">Expires turn ${c.expiryTurn}</p>
+              <button class="action-btn" onclick="window.executePlayerAction('sign', '${item.name}')">Sign Contract</button>
+            </div>`;
+          })
+          .join("");
+      }
+      break;
     case "wait":
       details.innerHTML = `<button class="action-btn" onclick="window.executePlayerAction('wait')">End Turn</button>`;
       break;
@@ -1194,6 +1315,41 @@ async function executePlayerActionFromClick(
         targetItemId: trap.id,
       };
     }
+  } else if (selectedAction === "contract") {
+    const targetSelect = document.getElementById(
+      "contract-target"
+    ) as HTMLSelectElement;
+    const expiryInput = document.getElementById(
+      "contract-expiry"
+    ) as HTMLInputElement;
+    const termsInput = document.getElementById(
+      "contract-terms"
+    ) as HTMLInputElement;
+
+    if (targetSelect && expiryInput && termsInput) {
+      const targetName = targetSelect.value;
+      const expiry = parseInt(expiryInput.value, 10);
+      const terms = termsInput.value;
+
+      if (!terms) {
+        const details = document.getElementById("action-details");
+        if (details) {
+          details.innerHTML += `<p style="color: var(--accent-red);">⚠️ Enter contract terms first</p>`;
+        }
+        return;
+      }
+
+      const targetChar = world.characters.find((c) => c.name === targetName);
+      if (targetChar) {
+        action = {
+          type: "issue_contract",
+          targetCharacterId: targetChar.id,
+          targetPosition: { x, y },
+          contractContents: terms,
+          contractExpiry: expiry,
+        };
+      }
+    }
   }
 
   if (action) {
@@ -1226,6 +1382,9 @@ async function executePlayerAction(
         const dropItem = current.inventory.find((i) => i.name === target);
         if (!dropItem) return;
         actualAction = { type: "drop", targetItemId: dropItem.id };
+        break;
+      case "sign":
+        actualAction = { type: "sign_contract", targetItemName: target };
         break;
       case "wait":
         actualAction = { type: "wait" };
@@ -1273,7 +1432,9 @@ async function executePlayerAction(
   if (
     actualAction.type === "wait" ||
     actualAction.type === "attack" ||
-    actualAction.type === "talk"
+    actualAction.type === "talk" ||
+    actualAction.type === "issue_contract" ||
+    actualAction.type === "sign_contract"
   ) {
     await advanceToNextCharacter();
   } else {
@@ -1320,6 +1481,8 @@ async function advanceToNextCharacter(): Promise<void> {
   if (currentCharacterIndex >= world.characters.length) {
     // New turn
     world.turn++;
+    // Check for expired contracts at the start of each new turn
+    await processExpiredContracts();
     currentCharacterIndex = 0;
     while (
       currentCharacterIndex < world.characters.length &&

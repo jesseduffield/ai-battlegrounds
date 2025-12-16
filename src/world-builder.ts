@@ -214,6 +214,7 @@ export function createTownMap(): World {
     rooms,
     characters,
     turn: 1,
+    activeContracts: [],
   };
 }
 
@@ -336,5 +337,6 @@ Think carefully about which strategy is best to ensure your survival.`;
     rooms,
     characters,
     turn: 1,
+    activeContracts: [],
   };
 }

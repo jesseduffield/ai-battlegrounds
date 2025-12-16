@@ -4,6 +4,8 @@ import type {
   Action,
   World,
   Position,
+  BloodContract,
+  GameEvent,
 } from "./types";
 import { getCharacterKnowledge, getReachableTiles } from "./engine";
 import OpenAI from "openai";
@@ -317,11 +319,39 @@ function formatKnowledge(
         desc += ` [trap]`;
         if (adjacent)
           desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
+      } else if (item.type === "contract" && item.contract) {
+        const contract = item.contract;
+        if (contract.targetId === character.id) {
+          desc += ` [Blood Contract FOR YOU from ${contract.issuerName}]`;
+          desc += ` - Terms: "${contract.contents}" (expires turn ${contract.expiryTurn})`;
+          if (adjacent) desc += ` - ADJACENT, can SIGN`;
+        } else {
+          desc += ` [Blood Contract for ${contract.targetName}]`;
+        }
       } else {
         if (adjacent) desc += ` - ADJACENT`;
       }
 
       lines.push(`  - ${desc}`);
+    }
+  }
+
+  // Show active contracts the character is party to
+  const myContracts = world.activeContracts.filter(
+    (c) => c.issuerId === character.id || c.targetId === character.id
+  );
+  if (myContracts.length > 0) {
+    lines.push(`\n=== YOUR BLOOD CONTRACTS ===`);
+    lines.push(`⚠️ VIOLATING A CONTRACT MEANS DEATH when it expires!`);
+    for (const contract of myContracts) {
+      const otherParty =
+        contract.issuerId === character.id
+          ? contract.targetName
+          : contract.issuerName;
+      const turnsLeft = contract.expiryTurn - world.turn;
+      lines.push(
+        `  - Contract with ${otherParty}: "${contract.contents}" (${turnsLeft} turns remaining, expires turn ${contract.expiryTurn})`
+      );
     }
   }
 
@@ -341,6 +371,9 @@ function formatKnowledge(
     "heard_about",
     "trap_triggered",
     "placed_trap",
+    "issued_contract",
+    "signed_contract",
+    "contract_judged",
   ];
 
   const importantMemories = knowledge.memories.filter((m) =>
@@ -419,6 +452,8 @@ const VALID_ACTION_TYPES = [
   "drop",
   "equip",
   "place",
+  "contract",
+  "sign",
   "wait",
 ] as const;
 
@@ -732,6 +767,73 @@ function parseJsonAction(
         }
       }
 
+    case "contract":
+      if (!jsonResponse.target) {
+        return {
+          action: null,
+          error: "CONTRACT requires target character name",
+        };
+      }
+      if (!jsonResponse.message) {
+        return {
+          action: null,
+          error: "CONTRACT requires terms (use message field)",
+        };
+      }
+      if (jsonResponse.x === null || jsonResponse.y === null) {
+        return {
+          action: null,
+          error: "CONTRACT requires x,y coordinates for placement",
+        };
+      }
+      const expiryMatch = jsonResponse.message.match(/\[(\d+)\]/);
+      if (!expiryMatch) {
+        return {
+          action: null,
+          error:
+            "CONTRACT requires expiry in format [N] at start of message, e.g. [10] Neither party attacks",
+        };
+      }
+      const expiry = parseInt(expiryMatch[1], 10);
+      if (expiry < 1 || expiry > 20) {
+        return {
+          action: null,
+          error: "CONTRACT expiry must be between 1 and 20 turns",
+        };
+      }
+      const contractContents = jsonResponse.message.replace(/^\[\d+\]\s*/, "");
+      const contractTarget = world.characters.find(
+        (c) => c.name.toLowerCase() === jsonResponse.target!.toLowerCase()
+      );
+      if (!contractTarget) {
+        return {
+          action: null,
+          error: `CONTRACT failed: Character "${jsonResponse.target}" not found`,
+        };
+      }
+      return {
+        action: {
+          type: "issue_contract",
+          targetCharacterId: contractTarget.id,
+          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+          contractContents,
+          contractExpiry: expiry,
+        },
+        error: null,
+      };
+
+    case "sign":
+      if (!jsonResponse.target) {
+        return { action: null, error: "SIGN requires contract name" };
+      }
+      return {
+        action: {
+          type: "sign_contract",
+          targetItemName: jsonResponse.target,
+        },
+        error: null,
+      };
+
     case "wait":
       return { action: { type: "wait" }, error: null };
 
@@ -845,6 +947,8 @@ ${moveAction}
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
 - DROP: Drop item from inventory. Requires target (item name).
+- CONTRACT: Issue a Blood Contract. Requires target (character name), x,y (adjacent tile), and message in format "[N] terms" where N is expiry turns (1-20). Ends turn.
+- SIGN: Sign a Blood Contract addressed to you. Requires target (contract name). Ends turn.
 - WAIT: End turn. No parameters.
 
 Respond with JSON:
@@ -859,10 +963,13 @@ ${
   turnHistory.length > 0
     ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
 {"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
+{"thought": null, "action": "CONTRACT", "x": 5, "y": 3, "target": "Luna", "message": "[10] Neither party attacks the other"}
+{"thought": null, "action": "SIGN", "x": null, "y": null, "target": "Blood Contract", "message": null}
 {"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
     : `{"thought": "There he is.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
 {"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}`
+{"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
+{"thought": "An alliance could help.", "action": "CONTRACT", "x": 4, "y": 5, "target": "Luna", "message": "[15] We protect each other until only enemies remain"}`
 }`;
 
   const userPrompt = `${character.personalityPrompt}
@@ -941,6 +1048,104 @@ What do you do?`;
         err instanceof Error ? err.message : "Unknown error"
       }`,
       error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
+}
+
+export type JudgeVerdict = {
+  verdict: string;
+  violators: string[]; // Character names who violated the contract
+};
+
+export async function judgeContract(
+  contract: BloodContract,
+  events: GameEvent[],
+  world: World
+): Promise<JudgeVerdict> {
+  if (!openai) {
+    return {
+      verdict:
+        "The Great Judge cannot render judgment - no connection to the divine.",
+      violators: [],
+    };
+  }
+
+  // Filter events to only those that happened during the contract period
+  const relevantEvents = events.filter(
+    (e) => e.turn >= contract.createdTurn && e.turn <= contract.expiryTurn
+  );
+
+  const issuer = world.characters.find((c) => c.id === contract.issuerId);
+  const target = world.characters.find((c) => c.id === contract.targetId);
+
+  const eventLog = relevantEvents
+    .map((e) => `[Turn ${e.turn}] ${e.description}`)
+    .join("\n");
+
+  const prompt = `You are the Great Judge, an all-seeing divine entity who enforces Blood Contracts.
+
+A Blood Contract has expired and you must render judgment.
+
+CONTRACT DETAILS:
+- Between: ${contract.issuerName} and ${contract.targetName}
+- Terms: "${contract.contents}"
+- Created: Turn ${contract.createdTurn}
+- Expired: Turn ${contract.expiryTurn}
+
+RELEVANT EVENTS DURING CONTRACT PERIOD:
+${eventLog || "(No events recorded)"}
+
+CURRENT STATUS:
+- ${contract.issuerName}: ${
+    issuer?.alive ? `Alive, HP ${issuer.hp}/${issuer.maxHp}` : "Dead"
+  }
+- ${contract.targetName}: ${
+    target?.alive ? `Alive, HP ${target.hp}/${target.maxHp}` : "Dead"
+  }
+
+Your task: Determine if either party violated the terms of the contract.
+
+Respond with JSON:
+{
+  "verdict": "Your judgment explanation (1-2 sentences, dramatic)",
+  "violators": ["Name1", "Name2"] // Empty array if no violations, or names of violators
+}
+
+Be fair but strict. If someone clearly violated the terms, they must be punished.
+If the terms are ambiguous and both parties acted in good faith, find no violation.
+If a party died during the contract period, they cannot be a violator (death releases them).`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 500,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return {
+        verdict: "The Great Judge is silent. No judgment can be rendered.",
+        violators: [],
+      };
+    }
+
+    const result = JSON.parse(content) as JudgeVerdict;
+
+    // Validate violator names
+    const validNames = [contract.issuerName, contract.targetName];
+    result.violators = result.violators.filter((name) =>
+      validNames.some((v) => v.toLowerCase() === name.toLowerCase())
+    );
+
+    return result;
+  } catch (err) {
+    console.error("Judge error:", err);
+    return {
+      verdict:
+        "The Great Judge encountered an error. Mercy is granted to all parties.",
+      violators: [],
     };
   }
 }

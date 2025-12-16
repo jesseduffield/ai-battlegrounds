@@ -27,7 +27,20 @@ export type ItemType =
   | "consumable"
   | "container"
   | "trap"
+  | "contract"
   | "misc";
+
+export type BloodContract = {
+  id: string;
+  issuerId: string;
+  issuerName: string;
+  targetId: string;
+  targetName: string;
+  contents: string;
+  expiryTurn: number;
+  signed: boolean; // true when target has countersigned
+  createdTurn: number;
+};
 
 export type Item = {
   id: string;
@@ -40,6 +53,7 @@ export type Item = {
   trapDamage?: number;
   trapAttackDebuff?: number;
   trapDebuffDuration?: number;
+  contract?: BloodContract;
 };
 
 export type TileMemory = {
@@ -84,7 +98,10 @@ export type MemoryType =
   | "heard_about"
   | "talked_to"
   | "placed_trap"
-  | "thought";
+  | "thought"
+  | "issued_contract"
+  | "signed_contract"
+  | "contract_judged";
 
 export type Memory = {
   id: string;
@@ -110,6 +127,7 @@ export type World = {
   rooms: Room[];
   characters: Character[];
   turn: number;
+  activeContracts: BloodContract[];
 };
 
 export type ActionType =
@@ -123,6 +141,8 @@ export type ActionType =
   | "attack"
   | "talk"
   | "place"
+  | "issue_contract"
+  | "sign_contract"
   | "wait";
 
 export type Action = {
@@ -132,6 +152,8 @@ export type Action = {
   targetItemId?: string;
   targetItemName?: string;
   message?: string;
+  contractContents?: string;
+  contractExpiry?: number;
 };
 
 export type ActionResult = {
@@ -160,7 +182,11 @@ export type GameEventType =
   | "talk"
   | "miss"
   | "place_trap"
-  | "trap_triggered";
+  | "trap_triggered"
+  | "contract_issued"
+  | "contract_signed"
+  | "contract_judged"
+  | "contract_violation";
 
 export type GameEvent = {
   turn: number;

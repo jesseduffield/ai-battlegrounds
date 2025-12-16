@@ -10,6 +10,7 @@ import type {
   Item,
   Memory,
   CharacterKnowledge,
+  BloodContract,
 } from "./types";
 
 export function createId(): string {
@@ -1254,6 +1255,296 @@ export function executeAction(
           targetPosition: character.position,
           itemName: trapItem.name,
         },
+      };
+    }
+
+    case "issue_contract": {
+      if (!action.targetCharacterId) {
+        return {
+          success: false,
+          message: "Must specify target character for contract",
+          events,
+        };
+      }
+
+      if (!action.contractContents) {
+        return {
+          success: false,
+          message: "Must specify contract contents/terms",
+          events,
+        };
+      }
+
+      if (
+        !action.contractExpiry ||
+        action.contractExpiry < 1 ||
+        action.contractExpiry > 20
+      ) {
+        return {
+          success: false,
+          message: "Contract expiry must be between 1 and 20 turns",
+          events,
+        };
+      }
+
+      if (!action.targetPosition) {
+        return {
+          success: false,
+          message: "Must specify adjacent tile to place contract",
+          events,
+        };
+      }
+
+      const targetChar = world.characters.find(
+        (c) => c.id === action.targetCharacterId
+      );
+      if (!targetChar) {
+        return {
+          success: false,
+          message: "Target character not found",
+          events,
+        };
+      }
+
+      if (targetChar.id === character.id) {
+        return {
+          success: false,
+          message: "Cannot issue contract to yourself",
+          events,
+        };
+      }
+
+      // Check target tile is adjacent
+      const cdx = Math.abs(action.targetPosition.x - character.position.x);
+      const cdy = Math.abs(action.targetPosition.y - character.position.y);
+      if (cdx > 1 || cdy > 1 || (cdx === 0 && cdy === 0)) {
+        return {
+          success: false,
+          message: "Can only place contract on adjacent tile",
+          events,
+        };
+      }
+
+      // Check target tile is valid ground
+      if (
+        action.targetPosition.x < 0 ||
+        action.targetPosition.x >= world.width ||
+        action.targetPosition.y < 0 ||
+        action.targetPosition.y >= world.height
+      ) {
+        return { success: false, message: "Target tile out of bounds", events };
+      }
+
+      const contractTile =
+        world.tiles[action.targetPosition.y][action.targetPosition.x];
+
+      if (!canWalkThrough(contractTile)) {
+        return {
+          success: false,
+          message: "Cannot place contract on non-walkable tile",
+          events,
+        };
+      }
+
+      // Create the contract
+      const contract: BloodContract = {
+        id: crypto.randomUUID(),
+        issuerId: character.id,
+        issuerName: character.name,
+        targetId: targetChar.id,
+        targetName: targetChar.name,
+        contents: action.contractContents,
+        expiryTurn: world.turn + action.contractExpiry,
+        signed: false, // Not yet countersigned by target
+        createdTurn: world.turn,
+      };
+
+      // Create contract item and place on tile
+      const contractItem: Item = {
+        id: crypto.randomUUID(),
+        name: `Blood Contract for ${targetChar.name}`,
+        type: "contract",
+        contract,
+      };
+
+      contractTile.items.push(contractItem);
+
+      addMemory(character, {
+        turn: world.turn,
+        type: "issued_contract",
+        description: `Issued Blood Contract to ${targetChar.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
+        location: { ...action.targetPosition },
+        characterId: targetChar.id,
+        source: "witnessed",
+      });
+
+      events.push({
+        turn: world.turn,
+        type: "contract_issued",
+        actorId: character.id,
+        targetId: targetChar.id,
+        position: { ...action.targetPosition },
+        message: action.contractContents,
+        description: `${character.name} issued a Blood Contract to ${targetChar.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
+      });
+
+      return {
+        success: true,
+        message: `Blood Contract issued to ${targetChar.name} at (${action.targetPosition.x}, ${action.targetPosition.y})`,
+        events,
+      };
+    }
+
+    case "sign_contract": {
+      if (!action.targetItemId && !action.targetItemName) {
+        return {
+          success: false,
+          message: "Must specify contract to sign",
+          events,
+        };
+      }
+
+      // Find contract in adjacent tiles or current tile
+      const adjacentPositions = [
+        character.position,
+        { x: character.position.x - 1, y: character.position.y },
+        { x: character.position.x + 1, y: character.position.y },
+        { x: character.position.x, y: character.position.y - 1 },
+        { x: character.position.x, y: character.position.y + 1 },
+      ];
+
+      let contractItem: Item | undefined;
+      let contractTile: Tile | undefined;
+      let contractPos: Position | undefined;
+
+      for (const pos of adjacentPositions) {
+        if (
+          pos.x < 0 ||
+          pos.x >= world.width ||
+          pos.y < 0 ||
+          pos.y >= world.height
+        ) {
+          continue;
+        }
+        const tile = world.tiles[pos.y][pos.x];
+        const found = tile.items.find(
+          (i) =>
+            i.type === "contract" &&
+            ((action.targetItemId && i.id === action.targetItemId) ||
+              (action.targetItemName &&
+                i.name
+                  .toLowerCase()
+                  .includes(action.targetItemName.toLowerCase())))
+        );
+        if (found) {
+          contractItem = found;
+          contractTile = tile;
+          contractPos = pos;
+          break;
+        }
+      }
+
+      if (
+        !contractItem ||
+        !contractTile ||
+        !contractPos ||
+        !contractItem.contract
+      ) {
+        return {
+          success: false,
+          message: "Blood Contract not found nearby",
+          events,
+        };
+      }
+
+      const contract = contractItem.contract;
+
+      // Check this contract is for this character
+      if (contract.targetId !== character.id) {
+        return {
+          success: false,
+          message: `This contract is addressed to ${contract.targetName}, not you`,
+          events,
+        };
+      }
+
+      if (contract.signed) {
+        return {
+          success: false,
+          message: "Contract already signed",
+          events,
+        };
+      }
+
+      // Countersign the contract
+      contract.signed = true;
+
+      // Remove from ground
+      const itemIndex = contractTile.items.findIndex(
+        (i) => i.id === contractItem!.id
+      );
+      contractTile.items.splice(itemIndex, 1);
+
+      // Create copies for both parties
+      const issuerCopy: Item = {
+        id: crypto.randomUUID(),
+        name: `Signed Contract with ${character.name}`,
+        type: "contract",
+        contract: { ...contract },
+      };
+
+      const signerCopy: Item = {
+        id: crypto.randomUUID(),
+        name: `Signed Contract with ${contract.issuerName}`,
+        type: "contract",
+        contract: { ...contract },
+      };
+
+      // Add to inventories
+      const issuer = world.characters.find((c) => c.id === contract.issuerId);
+      if (issuer && issuer.alive) {
+        issuer.inventory.push(issuerCopy);
+      }
+      character.inventory.push(signerCopy);
+
+      // Add to active contracts
+      world.activeContracts.push(contract);
+
+      addMemory(character, {
+        turn: world.turn,
+        type: "signed_contract",
+        description: `Signed Blood Contract with ${contract.issuerName}: "${contract.contents}" (expires turn ${contract.expiryTurn})`,
+        location: contractPos,
+        characterId: contract.issuerId,
+        source: "witnessed",
+      });
+
+      // Also add memory for issuer if they can see
+      if (issuer && issuer.alive) {
+        addMemory(issuer, {
+          turn: world.turn,
+          type: "signed_contract",
+          description: `${character.name} signed the Blood Contract: "${contract.contents}" (expires turn ${contract.expiryTurn})`,
+          location: contractPos,
+          characterId: character.id,
+          source: "witnessed",
+        });
+      }
+
+      events.push({
+        turn: world.turn,
+        type: "contract_signed",
+        actorId: character.id,
+        targetId: contract.issuerId,
+        position: contractPos,
+        message: contract.contents,
+        description: `${character.name} signed the Blood Contract with ${contract.issuerName}: "${contract.contents}" (expires turn ${contract.expiryTurn})`,
+      });
+
+      return {
+        success: true,
+        message: `Signed Blood Contract with ${contract.issuerName} - both parties now bound!`,
+        events,
       };
     }
 
