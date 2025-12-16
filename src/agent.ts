@@ -244,7 +244,7 @@ function formatKnowledge(
         lines.push(
           `  *** ${other.name} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${other.maxHp}, ${weapon}${trappedStatus}]`
         );
-      } else if (dist <= 2) {
+      } else if (dist <= 4) {
         lines.push(
           `  ** ${other.name} at ${formatPosition(
             position
@@ -334,6 +334,7 @@ function formatKnowledge(
     "was_attacked",
     "character_died",
     "witnessed_attack",
+    "saw_move",
     "picked_up_item",
     "searched_container",
     "talked_to",
@@ -397,7 +398,7 @@ function formatKnowledge(
     `  - ATTACK character_name : Attack adjacent character (1 tile). Works unarmed (punch for 1 damage)!`
   );
   lines.push(
-    `  - TALK character_name "message" : Speak to character (2 tiles)`
+    `  - TALK character_name "message" : Speak to character (4 tiles)`
   );
   lines.push(`  - WAIT : End turn doing nothing`);
 
@@ -837,8 +838,8 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 
 AVAILABLE ACTIONS:
 ${moveAction}
-- ATTACK: Attack ADJACENT character (1 tile away). Requires target name. Ends turn.
-- TALK: Speak to character within 2 tiles. Requires target and message. Ends turn.
+- ATTACK: Attack ADJACENT character (1 tile away, diagonal not allowed). Requires target name. Ends turn.
+- TALK: Speak to character within 4 tiles. Requires target and message. Ends turn.
 - SEARCH: Search adjacent container. Requires target (container name).
 - PICKUP: Pick up item at coordinates. Requires x, y, and target (item name).
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name).

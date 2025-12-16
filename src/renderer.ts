@@ -28,9 +28,17 @@ const COLORS = {
 };
 
 const CHARACTER_COLORS: Record<string, { body: string; accent: string }> = {
+  // Hunt map
   Kane: { body: "#e63946", accent: "#ff6b6b" },
   Razor: { body: "#4361ee", accent: "#7b8fff" },
-  Prey: { body: "#2a9d8f", accent: "#40e0d0" },
+  Alice: { body: "#e67e22", accent: "#f39c12" },
+  Bob: { body: "#1abc9c", accent: "#3dd6b0" },
+  Charlie: { body: "#e74c3c", accent: "#ff6b6b" },
+  // Bloodsport map
+  Rex: { body: "#e63946", accent: "#ff6b6b" },
+  Luna: { body: "#9b59b6", accent: "#bb77d6" },
+  Vex: { body: "#27ae60", accent: "#3dd6b0" },
+  Nova: { body: "#3498db", accent: "#5dade2" },
 };
 
 const DEFAULT_CHARACTER_COLORS = [

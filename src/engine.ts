@@ -270,16 +270,14 @@ export function findPath(
       // Containers are never walkable, even as destination
       if (hasContainer(tile)) continue;
 
-      // Walls/non-ground tiles block unless they're the destination
-      if (!canWalkThrough(tile)) {
-        if (!positionsEqual(next, to)) continue;
-      }
+      // Walls/non-ground tiles are NEVER walkable
+      if (!canWalkThrough(tile)) continue;
 
-      // Characters block unless they're the destination (for attacking)
+      // Characters always block - you can't move onto another character
       const hasCharacter = world.characters.some(
         (c) => c.alive && positionsEqual(c.position, next)
       );
-      if (hasCharacter && !positionsEqual(next, to)) continue;
+      if (hasCharacter) continue;
 
       const newPath = [...current.path, next];
 
@@ -511,6 +509,25 @@ export function executeAction(
           ? `${character.name} moved toward (${action.targetPosition.x}, ${action.targetPosition.y}) but was caught in a trap at (${finalPosition.x}, ${finalPosition.y})!`
           : `${character.name} moved to (${finalPosition.x}, ${finalPosition.y})`,
       });
+
+      // Notify witnesses who can see the final position
+      for (const witness of world.characters) {
+        if (witness.id === character.id) continue;
+        if (!witness.alive) continue;
+        const canSeeEnd =
+          lineOfSight(world, witness.position, finalPosition) &&
+          distance(witness.position, finalPosition) <= witness.viewDistance;
+        if (canSeeEnd) {
+          addMemory(witness, {
+            turn: world.turn,
+            type: "saw_move",
+            description: `Saw ${character.name} move to (${finalPosition.x}, ${finalPosition.y})`,
+            location: finalPosition,
+            characterId: character.id,
+            source: "witnessed",
+          });
+        }
+      }
 
       return {
         success: true,
@@ -1086,7 +1103,7 @@ export function executeAction(
         return { success: false, message: "Cannot talk to the dead", events };
       }
 
-      if (distance(character.position, target.position) > 2) {
+      if (distance(character.position, target.position) > 4) {
         return {
           success: false,
           message: "Target too far away to talk",
@@ -1323,7 +1340,7 @@ export function getCharacterKnowledge(
     if (distance(character.position, other.position) <= 1) {
       possibleActions.push({ type: "attack", targetCharacterId: other.id });
     }
-    if (distance(character.position, other.position) <= 2) {
+    if (distance(character.position, other.position) <= 4) {
       possibleActions.push({
         type: "talk",
         targetCharacterId: other.id,

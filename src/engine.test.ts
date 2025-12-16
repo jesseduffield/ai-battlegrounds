@@ -63,14 +63,8 @@ describe("Movement", () => {
       // Try to find path directly onto blocker's position
       const path = findPath(world, mover.position, blocker.position, 5);
 
-      // Path should be null since we can't move onto occupied tile
-      // OR path should exist but character can't actually move there
-      // Based on the code, findPath allows targeting occupied tiles (for attacks)
-      // but the tile itself blocks traversal
-      // Let's verify the behavior
-      expect(path).not.toBeNull();
-      // The path exists because findPath allows destinations with characters (for attacking)
-      // But the character shouldn't be able to actually complete the move
+      // Path should be null since we can't move onto an occupied tile
+      expect(path).toBeNull();
     });
 
     it("should not find a path through another character", () => {
@@ -194,6 +188,83 @@ describe("Movement", () => {
         targetPosition: { x: 6, y: 5 },
       });
 
+      expect(result.success).toBe(true);
+      expect(mover.position.x).toBe(6);
+      expect(mover.position.y).toBe(5);
+    });
+
+    it("should prevent moving directly into a wall", () => {
+      const world = createTestWorld(10, 10);
+
+      // Place a wall at (5, 5)
+      world.tiles[5][5] = { type: "wall", items: [], traps: [] };
+
+      const mover = createTestCharacter("Mover", 4, 5);
+      world.characters.push(mover);
+
+      const result = executeAction(world, mover, {
+        type: "move",
+        targetPosition: { x: 5, y: 5 }, // wall position
+      });
+
+      // Move should fail
+      expect(result.success).toBe(false);
+      // Mover should still be at original position
+      expect(mover.position.x).toBe(4);
+      expect(mover.position.y).toBe(5);
+    });
+
+    it("should prevent moving through walls", () => {
+      const world = createTestWorld(10, 10);
+
+      // Create a wall barrier
+      for (let y = 0; y < 10; y++) {
+        world.tiles[y][5] = { type: "wall", items: [], traps: [] };
+      }
+
+      const mover = createTestCharacter("Mover", 3, 5);
+      world.characters.push(mover);
+
+      const result = executeAction(world, mover, {
+        type: "move",
+        targetPosition: { x: 7, y: 5 }, // other side of wall
+      });
+
+      // Move should fail because wall blocks path
+      expect(result.success).toBe(false);
+      // Mover should still be at original position
+      expect(mover.position.x).toBe(3);
+      expect(mover.position.y).toBe(5);
+    });
+
+    it("should not find a path into a wall tile", () => {
+      const world = createTestWorld(10, 10);
+
+      // Place a wall at (5, 5)
+      world.tiles[5][5] = { type: "wall", items: [], traps: [] };
+
+      const path = findPath(world, { x: 3, y: 5 }, { x: 5, y: 5 }, 10);
+
+      // Should not find a path to a wall
+      expect(path).toBeNull();
+    });
+
+    it("should find a path around walls", () => {
+      const world = createTestWorld(10, 10);
+
+      // Create a small wall with a gap - wall at (5,5), gap at (5,6)
+      world.tiles[5][5] = { type: "wall", items: [], traps: [] };
+
+      // Mover at (4,5) wants to get to (6,5) - must go around via (5,6)
+      const mover = createTestCharacter("Mover", 4, 5, { movementRange: 10 });
+      world.characters.push(mover);
+
+      const result = executeAction(world, mover, {
+        type: "move",
+        targetPosition: { x: 6, y: 5 },
+      });
+
+      // Should find a path around the wall (4,5) -> (4,6) -> (5,6) -> (6,6) -> (6,5)
       expect(result.success).toBe(true);
       expect(mover.position.x).toBe(6);
       expect(mover.position.y).toBe(5);

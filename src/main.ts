@@ -106,11 +106,17 @@ function getCurrentCharacter(): Character | null {
 }
 
 const CHARACTER_COLORS: Record<string, string> = {
+  // Hunt map
   Kane: "#e63946",
   Razor: "#4361ee",
   Alice: "#e67e22",
   Bob: "#1abc9c",
   Charlie: "#e74c3c",
+  // Bloodsport map
+  Rex: "#e63946", // red
+  Luna: "#9b59b6", // purple
+  Vex: "#27ae60", // green
+  Nova: "#3498db", // blue
 };
 
 function showThoughtBubble(
@@ -518,9 +524,8 @@ function showInspector(w: World, pos: Position): void {
     }
 
     if (character.memories.length > 0) {
-      html += `<div style="margin-top: 0.5rem; font-weight: 600;">Recent Memories:</div>`;
-      const recentMems = character.memories.slice(-5);
-      for (const mem of recentMems) {
+      html += `<div style="margin-top: 0.5rem; font-weight: 600;">Memories:</div>`;
+      for (const mem of character.memories) {
         html += `<div class="memory-item"><span class="memory-turn">[Turn ${mem.turn}]</span> ${mem.description}</div>`;
       }
     }

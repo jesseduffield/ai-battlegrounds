@@ -74,6 +74,7 @@ export type MemoryType =
   | "saw_item"
   | "saw_character"
   | "saw_corpse"
+  | "saw_move"
   | "searched_container"
   | "picked_up_item"
   | "attacked"
