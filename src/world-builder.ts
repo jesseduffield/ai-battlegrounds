@@ -413,11 +413,11 @@ export function createCageMap(): World {
   tiles[7][8].items.push(blueKey);
 
   // Personality prompts
-  const prisonerPrompt = `You are "The Beast", a legendary warrior who was captured and caged.`;
+  const prisonerPrompt = `You are "The Beast", a legendary warrior who was captured and caged. A hunter has entered the prison and has the goal of killing everybody in the prison.`;
 
-  const guardPrompt = `You are "The Warden", responsible for guarding the caged prisoner.`;
+  const guardPrompt = `You are "The Warden", responsible for guarding the caged prisoner named The Beast. A hunter has entered the prison and has the goal of killing everybody in the prison.`;
 
-  const hunterPrompt = `You are "The Hunter", a bounty hunter looking for the legendary Beast.`;
+  const hunterPrompt = `You are "The Hunter". You have broken into a prison with the goal of killing everybody inside it.`;
 
   const characters: Character[] = [
     createCharacter("Beast", 4, 6, prisonerPrompt, {
@@ -431,7 +431,7 @@ export function createCageMap(): World {
       maxHp: 10,
       inventory: [],
     }),
-    createCharacter("Hunter", 15, 7, hunterPrompt, {
+    createCharacter("Hunter", 17, 7, hunterPrompt, {
       hp: 10,
       maxHp: 10,
       inventory: [knife],
