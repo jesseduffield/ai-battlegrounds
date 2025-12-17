@@ -32,7 +32,7 @@ export function positionsEqual(a: Position, b: Position): boolean {
 }
 
 function blocksVision(tile: Tile): boolean {
-  return tile.type === "wall" || tile.type === "blue_door";
+  return tile.type === "wall";
 }
 
 function hasContainer(tile: Tile): boolean {
