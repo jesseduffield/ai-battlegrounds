@@ -210,6 +210,7 @@ export type GameEvent = {
   description: string;
   judgePrompt?: string;
   judgeResponse?: string;
+  witnessIds: string[];
 };
 
 export type VisibleState = {

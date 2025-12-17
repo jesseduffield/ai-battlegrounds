@@ -498,6 +498,7 @@ export function executeAction(
             } ${trap.name}! Took ${trap.damage} damage! TRAPPED for ${
               trap.debuffDuration
             } turns (can't move, attack reduced)!`,
+            witnessIds: getWitnessIds(world, stepPos),
           });
 
           // Remove the trap after it triggers
@@ -520,6 +521,7 @@ export function executeAction(
         description: trapTriggered
           ? `${character.name} moved toward (${action.targetPosition.x}, ${action.targetPosition.y}) but was caught in a trap at (${finalPosition.x}, ${finalPosition.y})!`
           : `${character.name} moved to (${finalPosition.x}, ${finalPosition.y})`,
+        witnessIds: getWitnessIds(world, finalPosition),
       });
 
       // Notify witnesses who can see the final position
@@ -692,6 +694,7 @@ export function executeAction(
         itemId: container.id,
         position: containerPosition,
         description: `${character.name} searched ${container.name}`,
+        witnessIds: getWitnessIds(world, containerPosition),
       });
 
       return {
@@ -817,6 +820,7 @@ export function executeAction(
         itemId: item.id,
         position: character.position,
         description: `${character.name} picked up ${item.name}`,
+        witnessIds: getWitnessIds(world, character.position),
       });
 
       return {
@@ -876,6 +880,7 @@ export function executeAction(
         itemId: item.id,
         position: character.position,
         description: `${character.name} dropped ${item.name}`,
+        witnessIds: getWitnessIds(world, character.position),
       });
 
       return { success: true, message: `Dropped ${item.name}`, events };
@@ -919,6 +924,7 @@ export function executeAction(
         actorId: character.id,
         itemId: item.id,
         description: `${character.name} equipped ${item.name}`,
+        witnessIds: getWitnessIds(world, character.position),
       });
 
       return { success: true, message: `Equipped ${item.name}`, events };
@@ -957,6 +963,7 @@ export function executeAction(
             roll === 1
               ? `${character.name} critically missed attacking ${target.name}!`
               : `${character.name} missed ${target.name} with ${weaponName} (rolled ${roll})`,
+          witnessIds: getWitnessIds(world, target.position),
         });
 
         addMemory(character, {
@@ -987,6 +994,7 @@ export function executeAction(
           description: isCrit
             ? `${character.name} CRITICAL HIT ${target.name} with ${weaponName} for ${damage} damage!`
             : `${character.name} hit ${target.name} with ${weaponName} for ${damage} damage`,
+          witnessIds: getWitnessIds(world, target.position),
         });
 
         addMemory(character, {
@@ -1026,6 +1034,7 @@ export function executeAction(
               actorId: target.id,
               position: target.position,
               description: `${target.name}'s items fell to the ground: ${itemNames}`,
+              witnessIds: getWitnessIds(world, target.position),
             });
           }
           target.inventory = [];
@@ -1038,6 +1047,7 @@ export function executeAction(
             actorId: character.id,
             targetId: target.id,
             description: `${target.name} has been killed by ${character.name}!`,
+            witnessIds: getWitnessIds(world, target.position),
           });
 
           addMemory(character, {
@@ -1175,6 +1185,7 @@ export function executeAction(
         targetId: target.id,
         message: action.message,
         description: `${character.name} to ${target.name}: "${action.message}"`,
+        witnessIds: [character.id, target.id],
       });
 
       return { success: true, message: "Message delivered", events };
@@ -1284,6 +1295,7 @@ export function executeAction(
         itemId: trapItem.id,
         position: { ...action.targetPosition },
         description: `${character.name} placed a ${trapItem.name} at (${action.targetPosition.x}, ${action.targetPosition.y})`,
+        witnessIds: [character.id],
       });
 
       return {
@@ -1383,6 +1395,7 @@ export function executeAction(
         targetId: targetChar.id,
         message: action.contractContents,
         description: `${character.name} offers a Blood Contract to ${targetChar.name}${pitchPart}: "${action.contractContents}" (${action.contractExpiry} turns)`,
+        witnessIds: [character.id, targetChar.id],
       });
 
       return {
@@ -1467,6 +1480,7 @@ export function executeAction(
         type: "drop",
         actorId: character.id,
         description: `🔑 ${character.name} uses ${keyName} (key consumed)`,
+        witnessIds: getWitnessIds(world, character.position),
       };
       events.push(keyConsumedEvent);
 
@@ -1476,6 +1490,7 @@ export function executeAction(
         actorId: character.id,
         position: action.targetPosition,
         description: `🔓 ${character.name} unlocks the blue door at (${x}, ${y})!`,
+        witnessIds: getWitnessIds(world, action.targetPosition),
       };
       events.push(unlockEvent);
 
@@ -1526,6 +1541,26 @@ export function executeAction(
     default:
       return { success: false, message: "Unknown action type", events };
   }
+}
+
+// Returns true if the position is visible to the character
+function isVisible(
+  world: World,
+  character: Character,
+  position: Position
+): boolean {
+  return (
+    lineOfSight(world, character.position, position) &&
+    distance(character.position, position) <= character.viewDistance
+  );
+}
+
+export function getWitnessIds(world: World, position: Position): string[] {
+  return world.characters
+    .filter(
+      (character) => character.alive && isVisible(world, character, position)
+    )
+    .map((character) => character.id);
 }
 
 export function getCharacterKnowledge(

@@ -16,6 +16,7 @@ import {
   addMemory,
   distance,
   MAX_TALK_DISTANCE,
+  getWitnessIds,
 } from "./engine";
 import {
   getAgentDecision,
@@ -133,6 +134,7 @@ async function processExpiredContracts(): Promise<void> {
       message: verdict.verdict,
       judgePrompt: verdict.prompt,
       judgeResponse: verdict.rawResponse,
+      witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
     };
     allEvents.push(judgmentEvent);
     addLogEntry(judgmentEvent);
@@ -151,6 +153,7 @@ async function processExpiredContracts(): Promise<void> {
           type: "contract_violation",
           actorId: violator.id,
           description: `💀 ${violator.name} is struck dead by divine judgment for violating the Blood Contract!`,
+          witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
         };
         allEvents.push(deathEvent);
         addLogEntry(deathEvent);
@@ -864,6 +867,7 @@ async function handleConversation(
       targetId: listener.id,
       message: responseMessage,
       description: `${speaker.name} responds to ${listener.name}: "${responseMessage}"`,
+      witnessIds: [speaker.id, listener.id],
     };
     allEvents.push(evt);
     addLogEntry(evt);
@@ -1061,6 +1065,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name} has broken free from the trap!`,
+          witnessIds: getWitnessIds(world, current.position),
         };
         allEvents.push(freeEvent);
         addLogEntry(freeEvent);
@@ -1136,6 +1141,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name}: turn ended due to repeated errors`,
+          witnessIds: getWitnessIds(world, current.position),
         };
         allEvents.push(evt);
         addLogEntry(evt);
@@ -1155,6 +1161,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name}: move (REJECTED - already moved this turn)`,
+          witnessIds: getWitnessIds(world, current.position),
         };
         allEvents.push(evt);
         addLogEntry(evt);
@@ -1171,6 +1178,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name} cannot attack after equipping this turn`,
+          witnessIds: getWitnessIds(world, current.position),
         };
         allEvents.push(evt);
         addLogEntry(evt);
@@ -1234,6 +1242,7 @@ async function processTurn(): Promise<void> {
           description: `${current.name}: ${action.type}${
             result.success ? "" : ` (failed: ${result.message})`
           }`,
+          witnessIds: getWitnessIds(world, current.position),
         };
         allEvents.push(evt);
         addLogEntry(evt);
@@ -1368,6 +1377,7 @@ async function processTurn(): Promise<void> {
               targetId: current.id,
               message: action.contractContents,
               description: `🩸 ${target.name} signed the Blood Contract with ${current.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
+              witnessIds: [target.id, current.id],
             };
             allEvents.push(signedEvt);
             addLogEntry(signedEvt);
@@ -1402,6 +1412,7 @@ async function processTurn(): Promise<void> {
               description: `${target.name} declined the Blood Contract${
                 response ? `: "${response}"` : ""
               }`,
+              witnessIds: [target.id, current.id],
             };
             allEvents.push(declineEvt);
             addLogEntry(declineEvt);
@@ -1452,6 +1463,7 @@ async function processTurn(): Promise<void> {
         description: winner
           ? `🏆 GAME OVER! ${winner.name} is the last one standing!`
           : "💀 GAME OVER! Everyone is dead!",
+        witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
       };
       allEvents.push(gameOverEvent);
       addLogEntry(gameOverEvent);
@@ -2085,6 +2097,7 @@ async function executePlayerContract(): Promise<void> {
         targetId: current.id,
         message: terms,
         description: `🩸 ${targetChar.name} signed the Blood Contract with ${current.name}: "${terms}" (expires turn ${contract.expiryTurn})`,
+        witnessIds: [targetChar.id, current.id],
       };
       allEvents.push(signedEvt);
       addLogEntry(signedEvt);
@@ -2098,6 +2111,7 @@ async function executePlayerContract(): Promise<void> {
         description: `${targetChar.name} declined the Blood Contract${
           response ? `: "${response}"` : ""
         }`,
+        witnessIds: [targetChar.id, current.id],
       };
       allEvents.push(declineEvt);
       addLogEntry(declineEvt);
@@ -2491,6 +2505,7 @@ function init(): void {
     type: "move",
     actorId: "",
     description: "",
+    witnessIds: [],
   };
   allEvents.push(initialEvent);
   addLogEntry(initialEvent);
@@ -2501,6 +2516,7 @@ function init(): void {
       type: "move",
       actorId: character.id,
       description: `${character.name} is at (${character.position.x}, ${character.position.y})`,
+      witnessIds: getWitnessIds(world, character.position),
     };
     allEvents.push(evt);
     addLogEntry(evt);
