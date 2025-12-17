@@ -586,6 +586,15 @@
         </div>
       </div>
 
+      <div class="panel" id="contracts-panel" style="display: none;">
+        <div class="panel-header">
+          <span>🩸 Active Blood Contracts</span>
+          <button id="close-contracts" style="float: right; padding: 0 0.5rem; font-size: 0.7rem;">✕</button>
+        </div>
+        <div class="panel-content" id="contracts-content" style="max-height: 200px; overflow-y: auto;">
+        </div>
+      </div>
+
       <div class="controls">
         <div class="button-row">
           <button class="primary" id="next-turn-btn">Next Turn</button>
@@ -594,6 +603,9 @@
         <div class="button-row">
           <button id="speed-toggle-btn" title="Toggle game speed">🐢 Slow</button>
           <button id="player-control-btn" title="Control a character">🎮 Watch</button>
+        </div>
+        <div class="button-row">
+          <button id="contracts-btn" title="View active blood contracts">🩸 Contracts</button>
         </div>
         <div class="button-row">
           <button id="export-logs-btn" title="Copy full logs to clipboard">📋 Full</button>
@@ -618,6 +630,13 @@
             <button class="action-btn" data-action="wait">Wait</button>
           </div>
           <div id="action-details" style="margin-top: 0.5rem;"></div>
+        </div>
+      </div>
+
+      <div class="player-actions" id="player-actions-panel" style="display: none;">
+        <div class="panel-header">💬 Response Required</div>
+        <div class="panel-content" id="player-actions-panel-content">
+          <!-- Dynamically populated for conversations and contract decisions -->
         </div>
       </div>
     </div>

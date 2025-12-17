@@ -143,6 +143,7 @@ export type ActionType =
   | "place"
   | "issue_contract"
   | "sign_contract"
+  | "decline_contract"
   | "wait";
 
 export type Action = {
@@ -198,6 +199,8 @@ export type GameEvent = {
   damage?: number;
   message?: string;
   description: string;
+  judgePrompt?: string;
+  judgeResponse?: string;
 };
 
 export type VisibleState = {

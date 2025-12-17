@@ -425,13 +425,17 @@ function formatKnowledge(
     `  - EQUIP item_name : Equip weapon/clothing (cannot ATTACK same turn)`
   );
   lines.push(`  - DROP item_name : Drop item`);
+  lines.push(
+    `  - TALK character_name "message" : Start conversation (4 tiles). They can respond. Max 2 per turn.`
+  );
+  lines.push(``);
+  lines.push(
+    `  - CONTRACT character_name "[N] terms" : Offer Blood Contract (4 tiles). Max 2 per turn.`
+  );
   lines.push(``);
   lines.push(`These END your turn:`);
   lines.push(
     `  - ATTACK character_name : Attack adjacent character (1 tile). Works unarmed (punch for 1 damage)!`
-  );
-  lines.push(
-    `  - TALK character_name "message" : Speak to character (4 tiles)`
   );
   lines.push(`  - WAIT : End turn doing nothing`);
 
@@ -454,6 +458,7 @@ const VALID_ACTION_TYPES = [
   "place",
   "contract",
   "sign",
+  "decline",
   "wait",
 ] as const;
 
@@ -483,6 +488,7 @@ const actionResponseSchema = {
           "DROP",
           "EQUIP",
           "PLACE",
+          "CONTRACT",
           "WAIT",
         ],
         description: "The action type",
@@ -502,10 +508,56 @@ const actionResponseSchema = {
       },
       message: {
         type: ["string", "null"],
-        description: "Message content for TALK (null if not applicable)",
+        description:
+          "Message content for TALK or pitch for CONTRACT (null if not applicable)",
+      },
+      terms: {
+        type: ["string", "null"],
+        description:
+          "Contract terms for CONTRACT action (null if not applicable)",
+      },
+      expiry: {
+        type: ["number", "null"],
+        description:
+          "Contract duration in turns for CONTRACT action (1-20, null if not applicable)",
       },
     },
-    required: ["thought", "action", "x", "y", "target", "message"],
+    required: [
+      "thought",
+      "action",
+      "x",
+      "y",
+      "target",
+      "message",
+      "terms",
+      "expiry",
+    ],
+    additionalProperties: false,
+  },
+};
+
+// Separate schema for contract negotiation - only SIGN or DECLINE allowed
+const contractNegotiationSchema = {
+  name: "contract_response",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      thought: {
+        type: ["string", "null"],
+        description: "Your reasoning for signing or declining",
+      },
+      action: {
+        type: "string",
+        enum: ["SIGN", "DECLINE"],
+        description: "SIGN to accept the contract, DECLINE to reject it",
+      },
+      message: {
+        type: ["string", "null"],
+        description: "Optional message to the other party",
+      },
+    },
+    required: ["thought", "action", "message"],
     additionalProperties: false,
   },
 };
@@ -517,6 +569,8 @@ type JsonResponse = {
   y: number | null;
   target: string | null;
   message: string | null;
+  terms: string | null;
+  expiry: number | null;
 };
 
 function parseJsonAction(
@@ -774,34 +828,26 @@ function parseJsonAction(
           error: "CONTRACT requires target character name",
         };
       }
-      if (!jsonResponse.message) {
+      if (!jsonResponse.terms) {
         return {
           action: null,
-          error: "CONTRACT requires terms (use message field)",
+          error: "CONTRACT requires terms field",
         };
       }
-      if (jsonResponse.x === null || jsonResponse.y === null) {
+      if (!jsonResponse.expiry) {
         return {
           action: null,
-          error: "CONTRACT requires x,y coordinates for placement",
+          error: "CONTRACT requires expiry field (1-20 turns)",
         };
       }
-      const expiryMatch = jsonResponse.message.match(/\[(\d+)\]/);
-      if (!expiryMatch) {
-        return {
-          action: null,
-          error:
-            "CONTRACT requires expiry in format [N] at start of message, e.g. [10] Neither party attacks",
-        };
-      }
-      const expiry = parseInt(expiryMatch[1], 10);
+      const expiry = jsonResponse.expiry;
       if (expiry < 1 || expiry > 20) {
         return {
           action: null,
           error: "CONTRACT expiry must be between 1 and 20 turns",
         };
       }
-      const contractContents = jsonResponse.message.replace(/^\[\d+\]\s*/, "");
+      const contractContents = jsonResponse.terms;
       const contractTarget = world.characters.find(
         (c) => c.name.toLowerCase() === jsonResponse.target!.toLowerCase()
       );
@@ -815,27 +861,41 @@ function parseJsonAction(
         action: {
           type: "issue_contract",
           targetCharacterId: contractTarget.id,
-          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
           contractContents,
           contractExpiry: expiry,
+          message: jsonResponse.message || undefined,
         },
         error: null,
       };
 
     case "sign":
-      if (!jsonResponse.target) {
-        return { action: null, error: "SIGN requires contract name" };
-      }
+      // During contract negotiation, target is not required
       return {
         action: {
           type: "sign_contract",
-          targetItemName: jsonResponse.target,
+          targetItemName: jsonResponse.target || undefined,
+          message: jsonResponse.message || undefined,
+        },
+        error: null,
+      };
+
+    case "decline":
+      return {
+        action: {
+          type: "decline_contract",
+          message: jsonResponse.message || undefined,
         },
         error: null,
       };
 
     case "wait":
-      return { action: { type: "wait" }, error: null };
+      return {
+        action: {
+          type: "wait",
+          message: jsonResponse.message || undefined,
+        },
+        error: null,
+      };
 
     default:
       return { action: null, error: `Unknown action: ${actionType}` };
@@ -941,14 +1001,14 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 AVAILABLE ACTIONS:
 ${moveAction}
 - ATTACK: Attack ADJACENT character (1 tile away, diagonal not allowed). Requires target name. Ends turn.
-- TALK: Speak to character within 4 tiles. Requires target and message. Ends turn.
+- TALK: Speak to character within 4 tiles. Requires target and message. They can respond, starting a conversation. Does NOT end turn (max 2 per turn).
 - SEARCH: Search adjacent container. Requires target (container name).
 - PICKUP: Pick up item at coordinates. Requires x, y, and target (item name).
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
 - DROP: Drop item from inventory. Requires target (item name).
-- CONTRACT: Issue a Blood Contract. Requires target (character name), x,y (adjacent tile), and message in format "[N] terms" where N is expiry turns (1-20). Ends turn.
-- SIGN: Sign a Blood Contract addressed to you. Requires target (contract name). Ends turn.
+- CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-20 turns), and optional message (your pitch). Max 2 per turn.
+- SIGN: Accept a Blood Contract being offered to you. Use during contract negotiation.
 - WAIT: End turn. No parameters.
 
 Respond with JSON:
@@ -961,15 +1021,15 @@ Respond with JSON:
 EXAMPLES:
 ${
   turnHistory.length > 0
-    ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
-{"thought": null, "action": "CONTRACT", "x": 5, "y": 3, "target": "Luna", "message": "[10] Neither party attacks the other"}
-{"thought": null, "action": "SIGN", "x": null, "y": null, "target": "Blood Contract", "message": null}
-{"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null}`
+    ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
+{"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
+{"thought": null, "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "Let's team up!", "terms": "Neither party attacks the other", "expiry": 10}
+{"thought": null, "action": "SIGN", "x": null, "y": null, "target": null, "message": "Deal.", "terms": null, "expiry": null}
+{"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null, "terms": null, "expiry": null}`
     : `{"thought": "There he is.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
-{"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null}
-{"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null}
-{"thought": "An alliance could help.", "action": "CONTRACT", "x": 4, "y": 5, "target": "Luna", "message": "[15] We protect each other until only enemies remain"}`
+{"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
+{"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
+{"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": 15}`
 }`;
 
   const userPrompt = `${character.personalityPrompt}
@@ -1052,9 +1112,91 @@ What do you do?`;
   }
 }
 
+export type ContractNegotiationResult = {
+  signed: boolean;
+  thought: string | null;
+  message: string | null;
+  fullPrompt: string;
+  fullResponse: string;
+};
+
+export async function getContractDecision(
+  issuerName: string,
+  targetName: string,
+  contents: string,
+  expiry: number,
+  currentTurn: number,
+  pitch?: string
+): Promise<ContractNegotiationResult> {
+  if (!openai) {
+    return {
+      signed: false,
+      thought: "No AI connection",
+      message: null,
+      fullPrompt: "",
+      fullResponse: "",
+    };
+  }
+
+  const pitchLine = pitch ? `\n${issuerName} says: "${pitch}"\n` : "";
+  const prompt = `${issuerName} offers you a BLOOD CONTRACT:
+${pitchLine}
+Terms: "${contents}"
+Duration: ${expiry} turns (expires turn ${currentTurn + expiry})
+
+⚠️ WARNING: If you sign and violate the terms, the Great Judge will KILL YOU when it expires! On the flip side, if the other party violates the terms, the Great Judge will KILL THEM when it expires! Blood contracts allow for more secure cooperation.
+
+Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4.1",
+      messages: [
+        {
+          role: "system",
+          content: `You are ${targetName}. Decide whether to accept or reject this blood contract.`,
+        },
+        { role: "user", content: prompt },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: contractNegotiationSchema,
+      },
+      max_completion_tokens: 200,
+      temperature: 0.7,
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(content) as {
+      thought: string | null;
+      action: string;
+      message: string | null;
+    };
+
+    return {
+      signed: parsed.action.toUpperCase() === "SIGN",
+      thought: parsed.thought,
+      message: parsed.message,
+      fullPrompt: prompt,
+      fullResponse: content,
+    };
+  } catch (err) {
+    console.error("Contract decision error:", err);
+    return {
+      signed: false,
+      thought: "Error processing decision",
+      message: null,
+      fullPrompt: prompt,
+      fullResponse: "",
+    };
+  }
+}
+
 export type JudgeVerdict = {
   verdict: string;
   violators: string[]; // Character names who violated the contract
+  prompt?: string; // The full prompt sent to the judge (for debugging)
+  rawResponse?: string; // The raw JSON response from the judge
 };
 
 export async function judgeContract(
@@ -1062,14 +1204,6 @@ export async function judgeContract(
   events: GameEvent[],
   world: World
 ): Promise<JudgeVerdict> {
-  if (!openai) {
-    return {
-      verdict:
-        "The Great Judge cannot render judgment - no connection to the divine.",
-      violators: [],
-    };
-  }
-
   // Filter events to only those that happened during the contract period
   const relevantEvents = events.filter(
     (e) => e.turn >= contract.createdTurn && e.turn <= contract.expiryTurn
@@ -1115,6 +1249,15 @@ Be fair but strict. If someone clearly violated the terms, they must be punished
 If the terms are ambiguous and both parties acted in good faith, find no violation.
 If a party died during the contract period, they cannot be a violator (death releases them).`;
 
+  if (!openai) {
+    return {
+      verdict:
+        "The Great Judge cannot render judgment - no connection to the divine.",
+      violators: [],
+      prompt,
+    };
+  }
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -1128,6 +1271,7 @@ If a party died during the contract period, they cannot be a violator (death rel
       return {
         verdict: "The Great Judge is silent. No judgment can be rendered.",
         violators: [],
+        prompt,
       };
     }
 
@@ -1139,13 +1283,18 @@ If a party died during the contract period, they cannot be a violator (death rel
       validNames.some((v) => v.toLowerCase() === name.toLowerCase())
     );
 
-    return result;
+    return {
+      ...result,
+      prompt,
+      rawResponse: content,
+    };
   } catch (err) {
     console.error("Judge error:", err);
     return {
       verdict:
         "The Great Judge encountered an error. Mercy is granted to all parties.",
       violators: [],
+      prompt,
     };
   }
 }

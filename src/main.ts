@@ -14,8 +14,14 @@ import {
   getReachableTiles,
   getVisibleTiles,
   addMemory,
+  distance,
 } from "./engine";
-import { getAgentDecision, initializeAgent, judgeContract } from "./agent";
+import {
+  getAgentDecision,
+  initializeAgent,
+  judgeContract,
+  getContractDecision,
+} from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
 
 type WorldSnapshot = {
@@ -123,6 +129,8 @@ async function processExpiredContracts(): Promise<void> {
       actorId: "",
       description: `⚖️ THE GREAT JUDGE speaks on the contract between ${contract.issuerName} and ${contract.targetName}: "${verdict.verdict}"`,
       message: verdict.verdict,
+      judgePrompt: verdict.prompt,
+      judgeResponse: verdict.rawResponse,
     };
     allEvents.push(judgmentEvent);
     addLogEntry(judgmentEvent);
@@ -329,12 +337,31 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
   entry.className = "log-entry";
   entry.dataset.eventIndex = String(allEvents.length - 1);
   entry.dataset.snapshotIndex = String(snapshotIdx ?? snapshots.length - 1);
+
+  let extraHtml = "";
+  if (event.type === "contract_judged" && event.judgePrompt) {
+    const eventIdx = allEvents.length - 1;
+    extraHtml = `<div style="margin-top: 4px;"><a href="#" class="show-judge-prompt" data-event-idx="${eventIdx}" style="font-size: 11px; color: var(--accent-blue);">📜 Show Judge Prompt</a></div>`;
+  }
+
   entry.innerHTML = `
     <div class="log-turn">Turn ${event.turn}</div>
     <div class="${typeClass[event.type] ?? ""}">${event.description}</div>
+    ${extraHtml}
   `;
 
   entry.addEventListener("click", () => handleLogEntryClick(entry));
+
+  // Add judge prompt click handler
+  const judgeLink = entry.querySelector(".show-judge-prompt");
+  if (judgeLink) {
+    judgeLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt((e.target as HTMLElement).dataset.eventIdx || "0");
+      showJudgePrompt(idx);
+    });
+  }
 
   eventElements.set(allEvents.length - 1, entry);
   eventLogEl.insertBefore(entry, eventLogEl.firstChild);
@@ -627,6 +654,365 @@ function hideInspector(): void {
   if (panel) panel.style.display = "none";
 }
 
+function toggleContractsPanel(): void {
+  const panel = document.getElementById("contracts-panel");
+  if (!panel) return;
+
+  if (panel.style.display === "none") {
+    updateContractsPanel();
+    panel.style.display = "block";
+  } else {
+    panel.style.display = "none";
+  }
+}
+
+function hideContractsPanel(): void {
+  const panel = document.getElementById("contracts-panel");
+  if (panel) panel.style.display = "none";
+}
+
+function showJudgePrompt(eventIdx: number): void {
+  const event = allEvents[eventIdx];
+  if (!event || !event.judgePrompt) return;
+
+  const panel = document.getElementById("inspector-panel");
+  const content = document.getElementById("inspector-content");
+  const title = document.getElementById("inspector-title");
+
+  if (!panel || !content || !title) return;
+
+  title.textContent = "⚖️ Great Judge - Full Prompt";
+
+  const promptHtml = `
+    <div style="margin-bottom: 1rem;">
+      <h4 style="color: var(--accent-blue); margin-bottom: 0.5rem;">Prompt sent to Judge:</h4>
+      <pre style="white-space: pre-wrap; font-size: 11px; background: var(--bg-tertiary); padding: 0.5rem; border-radius: 4px; max-height: 300px; overflow-y: auto;">${escapeHtml(
+        event.judgePrompt
+      )}</pre>
+    </div>
+    ${
+      event.judgeResponse
+        ? `<div>
+        <h4 style="color: var(--accent-green); margin-bottom: 0.5rem;">Judge Response:</h4>
+        <pre style="white-space: pre-wrap; font-size: 11px; background: var(--bg-tertiary); padding: 0.5rem; border-radius: 4px;">${escapeHtml(
+          event.judgeResponse
+        )}</pre>
+      </div>`
+        : ""
+    }
+  `;
+
+  content.innerHTML = promptHtml;
+  panel.style.display = "block";
+}
+
+function updateContractsPanel(): void {
+  const content = document.getElementById("contracts-content");
+  if (!content) return;
+
+  if (world.activeContracts.length === 0) {
+    content.innerHTML = `<p style="color: var(--text-secondary);">No active blood contracts.</p>`;
+    return;
+  }
+
+  const contractsHtml = world.activeContracts
+    .map((c) => {
+      const turnsLeft = c.expiryTurn - world.turn;
+      return `
+        <div style="padding: 0.5rem; margin-bottom: 0.5rem; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--accent-red);">
+          <div style="font-weight: bold;">${c.issuerName} ↔ ${
+        c.targetName
+      }</div>
+          <div style="font-size: 0.8rem; margin: 0.25rem 0;">"${
+            c.contents
+          }"</div>
+          <div style="font-size: 0.7rem; color: var(--text-secondary);">
+            ${
+              turnsLeft > 0
+                ? `${turnsLeft} turns remaining (expires turn ${c.expiryTurn})`
+                : "⚠️ EXPIRING THIS TURN"
+            }
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  content.innerHTML = contractsHtml;
+}
+
+function showConversationInput(
+  _speaker: Character,
+  listener: Character,
+  lastMessage: string
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const panel = document.getElementById("player-actions-panel");
+    if (!panel) {
+      resolve(null);
+      return;
+    }
+
+    panel.style.display = "block";
+    panel.innerHTML = `
+      <h3 style="margin: 0 0 0.5rem 0;">💬 Respond to ${listener.name}</h3>
+      <p style="font-size: 0.8rem; margin-bottom: 0.5rem;">"${lastMessage}"</p>
+      <input type="text" id="convo-response" placeholder="Your response..." style="width: 100%; margin-bottom: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem;">
+        <button class="action-btn" id="convo-reply-btn">Reply</button>
+        <button class="action-btn" id="convo-end-btn" style="background: var(--bg-tertiary);">End Conversation</button>
+      </div>
+    `;
+
+    const input = document.getElementById("convo-response") as HTMLInputElement;
+    const replyBtn = document.getElementById("convo-reply-btn");
+    const endBtn = document.getElementById("convo-end-btn");
+
+    const submit = () => {
+      const msg = input.value.trim();
+      panel.style.display = "none";
+      resolve(msg || null);
+    };
+
+    const endConvo = () => {
+      panel.style.display = "none";
+      resolve(null);
+    };
+
+    replyBtn?.addEventListener("click", submit);
+    endBtn?.addEventListener("click", endConvo);
+    input?.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    input?.focus();
+  });
+}
+
+async function handleConversation(
+  initiator: Character,
+  target: Character,
+  initialMessage: string
+): Promise<void> {
+  const maxExchanges = 2; // A speaks, B responds, A responds (3 total messages, 2 exchanges after initial)
+  let speaker = target;
+  let listener = initiator;
+  let lastMessage = initialMessage;
+  let exchanges = 0;
+
+  while (exchanges < maxExchanges && speaker.alive && listener.alive) {
+    let responseMessage: string | null = null;
+
+    // Check if speaker is player-controlled
+    if (speaker.name === playerControlledCharacter) {
+      // Show input UI for player
+      responseMessage = await showConversationInput(
+        speaker,
+        listener,
+        lastMessage
+      );
+
+      if (!responseMessage) {
+        break; // Player chose to end conversation
+      }
+    } else {
+      // AI decides response
+      const prompt = `${listener.name} just said to you: "${lastMessage}"
+
+You can respond with TALK, or choose to end the conversation with WAIT (say nothing more).
+This is a conversation - you do NOT need to move or take other actions right now.`;
+
+      setThinkingCharacter(speaker.id);
+      renderWorld();
+
+      const { action, reasoning, fullPrompt, fullResponse } =
+        await getAgentDecision(world, speaker, [], prompt);
+
+      setThinkingCharacter(null);
+
+      if (reasoning) {
+        showThoughtBubble(speaker, reasoning);
+        if (!fastMode) {
+          await delay(1500);
+        }
+        hideThoughtBubble();
+      }
+
+      addReasoningEntry(speaker, reasoning, fullPrompt, fullResponse);
+
+      // If they don't talk back, end conversation
+      if (action.type !== "talk" || !action.message) {
+        break;
+      }
+
+      responseMessage = action.message;
+    }
+
+    // Show their response
+    showThoughtBubble(speaker, responseMessage, "speaking");
+    if (!fastMode) {
+      await delay(2500);
+    }
+    hideThoughtBubble();
+
+    // Log the response
+    const evt: GameEvent = {
+      turn: world.turn,
+      type: "talk",
+      actorId: speaker.id,
+      targetId: listener.id,
+      message: responseMessage,
+      description: `${speaker.name} responds to ${listener.name}: "${responseMessage}"`,
+    };
+    allEvents.push(evt);
+    addLogEntry(evt);
+
+    // Add memories
+    addMemory(speaker, {
+      turn: world.turn,
+      type: "talked_to",
+      description: `Said to ${listener.name}: "${responseMessage}"`,
+      characterId: listener.id,
+      source: "witnessed",
+    });
+    addMemory(listener, {
+      turn: world.turn,
+      type: "talked_to",
+      description: `${speaker.name} said: "${responseMessage}"`,
+      characterId: speaker.id,
+      source: "witnessed",
+    });
+
+    // Swap roles
+    lastMessage = responseMessage;
+    [speaker, listener] = [listener, speaker];
+    exchanges++;
+  }
+}
+
+function showContractDecisionUI(
+  issuer: Character,
+  contents: string,
+  expiry: number,
+  pitch?: string
+): Promise<{ signed: boolean; response?: string }> {
+  return new Promise((resolve) => {
+    const panel = document.getElementById("player-actions-panel");
+    if (!panel) {
+      resolve({ signed: false });
+      return;
+    }
+
+    panel.style.display = "block";
+    panel.innerHTML = `
+      <h3 style="margin: 0 0 0.5rem 0;">🩸 Blood Contract Offer</h3>
+      <p style="font-size: 0.8rem;"><strong>From ${issuer.name}:</strong></p>
+      ${
+        pitch
+          ? `<p style="font-size: 0.9rem; font-style: italic; margin: 0.5rem 0;">"${pitch}"</p>`
+          : ""
+      }
+      <p style="font-size: 0.9rem; margin: 0.5rem 0; padding: 0.5rem; background: var(--bg-tertiary); border-radius: 4px;"><strong>Terms:</strong> "${contents}"</p>
+      <p style="font-size: 0.7rem; color: var(--text-secondary);">Duration: ${expiry} turns (expires turn ${
+      world.turn + expiry
+    })</p>
+      <p style="font-size: 0.7rem; color: var(--accent-red);">⚠️ Violating the terms = DEATH</p>
+      <input type="text" id="contract-response" placeholder="Optional message..." style="width: 100%; margin-bottom: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem;">
+        <button class="action-btn" id="contract-sign-btn" style="background: var(--accent-green);">✓ Sign</button>
+        <button class="action-btn" id="contract-decline-btn" style="background: var(--accent-red);">✗ Decline</button>
+      </div>
+    `;
+
+    const input = document.getElementById(
+      "contract-response"
+    ) as HTMLInputElement;
+    const signBtn = document.getElementById("contract-sign-btn");
+    const declineBtn = document.getElementById("contract-decline-btn");
+
+    signBtn?.addEventListener("click", () => {
+      const response = input.value.trim() || undefined;
+      panel.style.display = "none";
+      resolve({ signed: true, response });
+    });
+
+    declineBtn?.addEventListener("click", () => {
+      const response = input.value.trim() || undefined;
+      panel.style.display = "none";
+      resolve({ signed: false, response });
+    });
+  });
+}
+
+async function handleContractNegotiation(
+  issuer: Character,
+  target: Character,
+  contents: string,
+  expiry: number,
+  pitch?: string
+): Promise<{ signed: boolean; response?: string }> {
+  // Check if target is player-controlled
+  if (target.name === playerControlledCharacter) {
+    const result = await showContractDecisionUI(
+      issuer,
+      contents,
+      expiry,
+      pitch
+    );
+
+    // Show their response if any
+    if (result.response) {
+      showThoughtBubble(target, result.response, "speaking");
+      if (!fastMode) {
+        await delay(2500);
+      }
+      hideThoughtBubble();
+    }
+
+    return result;
+  }
+
+  // AI decides using dedicated contract schema (only SIGN or DECLINE allowed)
+  setThinkingCharacter(target.id);
+  renderWorld();
+
+  const result = await getContractDecision(
+    issuer.name,
+    target.name,
+    contents,
+    expiry,
+    world.turn,
+    pitch
+  );
+
+  setThinkingCharacter(null);
+
+  if (result.thought) {
+    showThoughtBubble(target, result.thought);
+    if (!fastMode) {
+      await delay(1500);
+    }
+    hideThoughtBubble();
+  }
+
+  addReasoningEntry(
+    target,
+    result.thought,
+    result.fullPrompt,
+    result.fullResponse
+  );
+
+  // Show their response if any
+  if (result.message) {
+    showThoughtBubble(target, result.message, "speaking");
+    if (!fastMode) {
+      await delay(2500);
+    }
+    hideThoughtBubble();
+  }
+
+  return { signed: result.signed, response: result.message || undefined };
+}
+
 async function processTurn(): Promise<void> {
   if (isProcessingTurn) return;
   if (viewingSnapshot) {
@@ -686,6 +1072,10 @@ async function processTurn(): Promise<void> {
 
     let equippedThisTurn = false;
     let movedThisTurn = false;
+    let conversationsThisTurn = 0;
+    const maxConversationsPerTurn = 2;
+    let contractsIssuedThisTurn = 0;
+    const maxContractsPerTurn = 2;
     let turnEnded = false;
     let actionsThisTurn = 0;
     const maxActionsPerTurn = 3;
@@ -895,23 +1285,157 @@ async function processTurn(): Promise<void> {
         continue;
       }
 
-      // Show speech bubble for talk actions
+      // Handle talk actions - start a conversation
       if (action.type === "talk" && result.success && action.message) {
+        if (conversationsThisTurn >= maxConversationsPerTurn) {
+          lastFailure = `You already had ${maxConversationsPerTurn} conversations this turn`;
+          continue;
+        }
+
         showThoughtBubble(current, action.message, "speaking");
         if (!fastMode) {
-          await delay(3000);
+          await delay(2500);
         }
         hideThoughtBubble();
+
+        // Start conversation with target
+        const target = world.characters.find(
+          (c) => c.id === action.targetCharacterId
+        );
+        if (target && target.alive) {
+          await handleConversation(current, target, action.message);
+        }
+
+        conversationsThisTurn++;
+        // Talk does NOT end turn - continue with other actions
+      } else if (action.type === "talk" && !result.success) {
+        lastFailure = `TALK failed: ${result.message}`;
+        continue;
       }
 
-      // Turn-ending actions - only end turn if successful (or wait)
-      if (action.type === "attack" || action.type === "talk") {
+      // Handle contract negotiation - immediate dialog
+      if (action.type === "issue_contract" && result.success) {
+        if (contractsIssuedThisTurn >= maxContractsPerTurn) {
+          lastFailure = `You already issued ${maxContractsPerTurn} contracts this turn`;
+          continue;
+        }
+
+        const target = world.characters.find(
+          (c) => c.id === action.targetCharacterId
+        );
+        if (
+          target &&
+          target.alive &&
+          action.contractContents &&
+          action.contractExpiry
+        ) {
+          const { signed, response } = await handleContractNegotiation(
+            current,
+            target,
+            action.contractContents,
+            action.contractExpiry,
+            action.message
+          );
+
+          if (signed) {
+            // Create and activate the contract
+            const contract = {
+              id: crypto.randomUUID(),
+              issuerId: current.id,
+              issuerName: current.name,
+              targetId: target.id,
+              targetName: target.name,
+              contents: action.contractContents,
+              expiryTurn: world.turn + action.contractExpiry,
+              signed: true,
+              createdTurn: world.turn,
+            };
+
+            world.activeContracts.push(contract);
+
+            // Add to both inventories
+            const issuerCopy = {
+              id: crypto.randomUUID(),
+              name: `Contract with ${target.name}`,
+              type: "contract" as const,
+              contract,
+            };
+            const targetCopy = {
+              id: crypto.randomUUID(),
+              name: `Contract with ${current.name}`,
+              type: "contract" as const,
+              contract,
+            };
+            current.inventory.push(issuerCopy);
+            target.inventory.push(targetCopy);
+
+            const signedEvt: GameEvent = {
+              turn: world.turn,
+              type: "contract_signed",
+              actorId: target.id,
+              targetId: current.id,
+              message: action.contractContents,
+              description: `🩸 ${target.name} signed the Blood Contract with ${current.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
+            };
+            allEvents.push(signedEvt);
+            addLogEntry(signedEvt);
+
+            // Add memories
+            addMemory(current, {
+              turn: world.turn,
+              type: "signed_contract",
+              description: `${target.name} signed the Blood Contract: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
+              characterId: target.id,
+              source: "witnessed",
+            });
+            addMemory(target, {
+              turn: world.turn,
+              type: "signed_contract",
+              description: `Signed Blood Contract with ${current.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
+              characterId: current.id,
+              source: "witnessed",
+            });
+            // Add to turn history so follow-up actions know the result
+            turnHistory.push({
+              response: `CONTRACT ${target.name}: "${action.contractContents}"`,
+              result: `✅ ${target.name} SIGNED the contract`,
+            });
+          } else {
+            const declineEvt: GameEvent = {
+              turn: world.turn,
+              type: "talk",
+              actorId: target.id,
+              targetId: current.id,
+              message: response || "declined",
+              description: `${target.name} declined the Blood Contract${
+                response ? `: "${response}"` : ""
+              }`,
+            };
+            allEvents.push(declineEvt);
+            addLogEntry(declineEvt);
+
+            // Add to turn history so follow-up actions know the result
+            turnHistory.push({
+              response: `CONTRACT ${target.name}: "${action.contractContents}"`,
+              result: `❌ ${target.name} DECLINED${
+                response ? `: "${response}"` : ""
+              }`,
+            });
+          }
+        }
+        contractsIssuedThisTurn++;
+        // Contracts no longer end turn - can issue up to maxContractsPerTurn
+      } else if (action.type === "issue_contract" && !result.success) {
+        lastFailure = `CONTRACT failed: ${result.message}`;
+        continue;
+      }
+
+      // Attack ends turn
+      if (action.type === "attack") {
         if (result.success) {
           turnEnded = true;
         } else {
-          lastFailure = `${action.type.toUpperCase()} failed: ${
-            result.message
-          }`;
+          lastFailure = `ATTACK failed: ${result.message}`;
           continue;
         }
       }
@@ -1190,64 +1714,32 @@ function selectPlayerAction(actionType: string): void {
       const otherChars = world.characters.filter(
         (c) => c.alive && c.id !== current.id
       );
-      if (otherChars.length === 0) {
-        details.innerHTML = `<p>No other characters to contract with</p>`;
+      const nearbyChars = otherChars.filter(
+        (c) => distance(current.position, c.position) <= 4
+      );
+      if (nearbyChars.length === 0) {
+        details.innerHTML = `<p>No characters within 4 tiles to contract with</p>`;
       } else {
         details.innerHTML = `
-          <p>Issue Blood Contract:</p>
-          <select id="contract-target">${otherChars
-            .map((c) => `<option value="${c.name}">${c.name}</option>`)
+          <p>Offer Blood Contract:</p>
+          <select id="contract-target">${nearbyChars
+            .map(
+              (c) =>
+                `<option value="${c.name}">${c.name} (${Math.round(
+                  distance(current.position, c.position)
+                )} tiles)</option>`
+            )
             .join("")}</select>
+          <input type="text" id="contract-pitch" placeholder="Your pitch (optional)" style="width: 100%;">
           <input type="number" id="contract-expiry" placeholder="Expiry (1-20 turns)" min="1" max="20" value="10" style="width: 100%;">
           <input type="text" id="contract-terms" placeholder="Terms, e.g. 'Neither attacks the other'" style="width: 100%;">
-          <p style="font-size: 0.7rem;">Click adjacent tile to place</p>
+          <button class="action-btn" onclick="window.executePlayerContract()">Offer Contract</button>
         `;
       }
       break;
     case "sign":
-      const nearbyContracts: {
-        item: (typeof world.tiles)[0][0]["items"][0];
-        pos: Position;
-      }[] = [];
-      const adjPositions = [
-        current.position,
-        { x: current.position.x - 1, y: current.position.y },
-        { x: current.position.x + 1, y: current.position.y },
-        { x: current.position.x, y: current.position.y - 1 },
-        { x: current.position.x, y: current.position.y + 1 },
-      ];
-      for (const pos of adjPositions) {
-        if (
-          pos.x < 0 ||
-          pos.x >= world.width ||
-          pos.y < 0 ||
-          pos.y >= world.height
-        )
-          continue;
-        const tile = world.tiles[pos.y][pos.x];
-        for (const item of tile.items) {
-          if (
-            item.type === "contract" &&
-            item.contract?.targetId === current.id
-          ) {
-            nearbyContracts.push({ item, pos });
-          }
-        }
-      }
-      if (nearbyContracts.length === 0) {
-        details.innerHTML = `<p>No contracts addressed to you nearby</p>`;
-      } else {
-        details.innerHTML = nearbyContracts
-          .map(({ item }) => {
-            const c = item.contract!;
-            return `<div style="margin-bottom: 0.5rem;">
-              <p><strong>From ${c.issuerName}:</strong> "${c.contents}"</p>
-              <p style="font-size: 0.7rem;">Expires turn ${c.expiryTurn}</p>
-              <button class="action-btn" onclick="window.executePlayerAction('sign', '${item.name}')">Sign Contract</button>
-            </div>`;
-          })
-          .join("");
-      }
+      // Sign action is now handled during contract negotiation - not a standalone action
+      details.innerHTML = `<p>Signing happens automatically when someone offers you a contract.</p>`;
       break;
     case "wait":
       details.innerHTML = `<button class="action-btn" onclick="window.executePlayerAction('wait')">End Turn</button>`;
@@ -1315,42 +1807,8 @@ async function executePlayerActionFromClick(
         targetItemId: trap.id,
       };
     }
-  } else if (selectedAction === "contract") {
-    const targetSelect = document.getElementById(
-      "contract-target"
-    ) as HTMLSelectElement;
-    const expiryInput = document.getElementById(
-      "contract-expiry"
-    ) as HTMLInputElement;
-    const termsInput = document.getElementById(
-      "contract-terms"
-    ) as HTMLInputElement;
-
-    if (targetSelect && expiryInput && termsInput) {
-      const targetName = targetSelect.value;
-      const expiry = parseInt(expiryInput.value, 10);
-      const terms = termsInput.value;
-
-      if (!terms) {
-        const details = document.getElementById("action-details");
-        if (details) {
-          details.innerHTML += `<p style="color: var(--accent-red);">⚠️ Enter contract terms first</p>`;
-        }
-        return;
-      }
-
-      const targetChar = world.characters.find((c) => c.name === targetName);
-      if (targetChar) {
-        action = {
-          type: "issue_contract",
-          targetCharacterId: targetChar.id,
-          targetPosition: { x, y },
-          contractContents: terms,
-          contractExpiry: expiry,
-        };
-      }
-    }
   }
+  // Contract action is handled by executePlayerContract, not by clicking tiles
 
   if (action) {
     await executePlayerAction(action);
@@ -1429,13 +1887,9 @@ async function executePlayerAction(
   updateUI();
 
   // If wait or turn-ending action, advance turn
-  if (
-    actualAction.type === "wait" ||
-    actualAction.type === "attack" ||
-    actualAction.type === "talk" ||
-    actualAction.type === "issue_contract" ||
-    actualAction.type === "sign_contract"
-  ) {
+  // Note: talk is handled separately in executePlayerTalk with conversation
+  // Note: issue_contract is handled separately in executePlayerContract
+  if (actualAction.type === "wait" || actualAction.type === "attack") {
     await advanceToNextCharacter();
   } else {
     // Show actions again for follow-up
@@ -1445,6 +1899,13 @@ async function executePlayerAction(
 }
 
 async function executePlayerTalk(): Promise<void> {
+  if (!playerControlledCharacter) return;
+
+  const current = world.characters.find(
+    (c) => c.name === playerControlledCharacter
+  );
+  if (!current || !current.alive) return;
+
   const targetSelect = document.getElementById(
     "talk-target"
   ) as HTMLSelectElement;
@@ -1460,11 +1921,43 @@ async function executePlayerTalk(): Promise<void> {
   const target = world.characters.find((c) => c.name === targetName);
   if (!target || !message) return;
 
-  await executePlayerAction({
+  // Execute the talk action
+  const action: Action = {
     type: "talk",
     targetCharacterId: target.id,
     message,
-  });
+  };
+
+  const result = executeAction(world, current, action);
+  for (const evt of result.events) {
+    allEvents.push(evt);
+    addLogEntry(evt);
+  }
+
+  if (result.success) {
+    // Show speech bubble
+    showThoughtBubble(current, message, "speaking");
+    if (!fastMode) {
+      await delay(2500);
+    }
+    hideThoughtBubble();
+
+    // Start conversation with target - they can respond
+    if (target.alive) {
+      await handleConversation(current, target, message);
+    }
+
+    // Talk does NOT end turn - show actions again
+    showPlayerActions();
+    selectedAction = null;
+  } else {
+    const details = document.getElementById("action-details");
+    if (details) {
+      details.innerHTML += `<p style="color: var(--accent-red);">⚠️ ${result.message}</p>`;
+    }
+  }
+
+  updateUI();
 }
 
 async function advanceToNextCharacter(): Promise<void> {
@@ -1501,9 +1994,144 @@ async function advanceToNextCharacter(): Promise<void> {
   }
 }
 
+async function executePlayerContract(): Promise<void> {
+  if (!playerControlledCharacter) return;
+
+  const current = world.characters.find(
+    (c) => c.name === playerControlledCharacter
+  );
+  if (!current || !current.alive) return;
+
+  const targetSelect = document.getElementById(
+    "contract-target"
+  ) as HTMLSelectElement;
+  const expiryInput = document.getElementById(
+    "contract-expiry"
+  ) as HTMLInputElement;
+  const termsInput = document.getElementById(
+    "contract-terms"
+  ) as HTMLInputElement;
+  const pitchInput = document.getElementById(
+    "contract-pitch"
+  ) as HTMLInputElement;
+
+  if (!targetSelect || !expiryInput || !termsInput) return;
+
+  const targetName = targetSelect.value;
+  const expiry = parseInt(expiryInput.value, 10);
+  const terms = termsInput.value;
+  const pitch = pitchInput?.value || undefined;
+
+  if (!terms) {
+    const details = document.getElementById("action-details");
+    if (details) {
+      details.innerHTML += `<p style="color: var(--accent-red);">⚠️ Enter contract terms first</p>`;
+    }
+    return;
+  }
+
+  const targetChar = world.characters.find((c) => c.name === targetName);
+  if (!targetChar) return;
+
+  // Execute the contract offer
+  const action: Action = {
+    type: "issue_contract",
+    targetCharacterId: targetChar.id,
+    contractContents: terms,
+    contractExpiry: expiry,
+    message: pitch,
+  };
+
+  const result = executeAction(world, current, action);
+  for (const evt of result.events) {
+    allEvents.push(evt);
+    addLogEntry(evt);
+  }
+
+  if (result.success) {
+    // Handle the negotiation
+    const { signed, response } = await handleContractNegotiation(
+      current,
+      targetChar,
+      terms,
+      expiry,
+      pitch
+    );
+
+    if (signed) {
+      // Create and activate the contract
+      const contract = {
+        id: crypto.randomUUID(),
+        issuerId: current.id,
+        issuerName: current.name,
+        targetId: targetChar.id,
+        targetName: targetChar.name,
+        contents: terms,
+        expiryTurn: world.turn + expiry,
+        signed: true,
+        createdTurn: world.turn,
+      };
+
+      world.activeContracts.push(contract);
+
+      // Add to both inventories
+      const issuerCopy = {
+        id: crypto.randomUUID(),
+        name: `Contract with ${targetChar.name}`,
+        type: "contract" as const,
+        contract,
+      };
+      const targetCopy = {
+        id: crypto.randomUUID(),
+        name: `Contract with ${current.name}`,
+        type: "contract" as const,
+        contract,
+      };
+      current.inventory.push(issuerCopy);
+      targetChar.inventory.push(targetCopy);
+
+      const signedEvt: GameEvent = {
+        turn: world.turn,
+        type: "contract_signed",
+        actorId: targetChar.id,
+        targetId: current.id,
+        message: terms,
+        description: `🩸 ${targetChar.name} signed the Blood Contract with ${current.name}: "${terms}" (expires turn ${contract.expiryTurn})`,
+      };
+      allEvents.push(signedEvt);
+      addLogEntry(signedEvt);
+    } else {
+      const declineEvt: GameEvent = {
+        turn: world.turn,
+        type: "talk",
+        actorId: targetChar.id,
+        targetId: current.id,
+        message: response || "declined",
+        description: `${targetChar.name} declined the Blood Contract${
+          response ? `: "${response}"` : ""
+        }`,
+      };
+      allEvents.push(declineEvt);
+      addLogEntry(declineEvt);
+    }
+
+    // Contract no longer ends turn - show actions again
+    showPlayerActions();
+    selectedAction = null;
+  } else {
+    const details = document.getElementById("action-details");
+    if (details) {
+      details.innerHTML += `<p style="color: var(--accent-red);">⚠️ ${result.message}</p>`;
+    }
+  }
+
+  updateUI();
+}
+
 // Expose functions to window for onclick handlers
 (window as any).executePlayerAction = executePlayerAction;
 (window as any).executePlayerTalk = executePlayerTalk;
+(window as any).executePlayerContract = executePlayerContract;
 
 function exportLogs(): void {
   const lines: string[] = [];
@@ -1863,6 +2491,12 @@ function init(): void {
 
   const closeInspectorBtn = document.getElementById("close-inspector");
   closeInspectorBtn?.addEventListener("click", hideInspector);
+
+  const contractsBtn = document.getElementById("contracts-btn");
+  contractsBtn?.addEventListener("click", toggleContractsPanel);
+
+  const closeContractsBtn = document.getElementById("close-contracts");
+  closeContractsBtn?.addEventListener("click", hideContractsPanel);
 
   const initialEvent: GameEvent = {
     turn: 0,
