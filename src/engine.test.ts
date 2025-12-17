@@ -663,3 +663,71 @@ describe("Line of Sight", () => {
     expect(lineOfSight(world, from, { x: 7, y: 11 })).toBe(false);
   });
 });
+
+describe("Talk through bars", () => {
+  it("should be able to talk through bars", () => {
+    const world = createTestWorld(15, 10);
+
+    // Create a cage with bars at x=5
+    for (let y = 3; y <= 7; y++) {
+      world.tiles[y][5] = { type: "bars", items: [], traps: [] };
+    }
+
+    // Character inside cage at (3, 5)
+    const insider = createTestCharacter("Insider", 3, 5);
+    // Character outside cage at (7, 5) - distance is 4 tiles
+    const outsider = createTestCharacter("Outsider", 7, 5);
+    world.characters.push(insider, outsider);
+
+    // Try to talk from insider to outsider (through the bars)
+    const result = executeAction(world, insider, {
+      type: "talk",
+      targetCharacterId: outsider.id,
+      message: "Hello through the bars!",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should be able to talk through bars at MAX_TALK_DISTANCE", () => {
+    const world = createTestWorld(20, 10);
+
+    // Create bars at x=5
+    for (let y = 3; y <= 7; y++) {
+      world.tiles[y][5] = { type: "bars", items: [], traps: [] };
+    }
+
+    // Character inside at (3, 5)
+    const insider = createTestCharacter("Insider", 3, 5);
+    // Character outside at (9, 5) - distance is 6 tiles (MAX_TALK_DISTANCE)
+    const outsider = createTestCharacter("Outsider", 9, 5);
+    world.characters.push(insider, outsider);
+
+    const result = executeAction(world, insider, {
+      type: "talk",
+      targetCharacterId: outsider.id,
+      message: "Can you hear me?",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("should NOT be able to talk beyond MAX_TALK_DISTANCE", () => {
+    const world = createTestWorld(20, 10);
+
+    // Character at (0, 5)
+    const char1 = createTestCharacter("Char1", 0, 5);
+    // Character at (10, 5) - distance is 10 tiles (beyond MAX_TALK_DISTANCE of 6)
+    const char2 = createTestCharacter("Char2", 10, 5);
+    world.characters.push(char1, char2);
+
+    const result = executeAction(world, char1, {
+      type: "talk",
+      targetCharacterId: char2.id,
+      message: "Too far!",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("too far");
+  });
+});

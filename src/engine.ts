@@ -12,8 +12,15 @@ import type {
   CharacterKnowledge,
 } from "./types";
 
+export const MAX_TALK_DISTANCE = 6;
+
 export function createId(): string {
   return Math.random().toString(36).substring(2, 11);
+}
+
+let memoryOrderCounter = 0;
+export function getNextMemoryOrder(): number {
+  return memoryOrderCounter++;
 }
 
 export function distance(a: Position, b: Position): number {
@@ -390,9 +397,13 @@ export function calculateDamage(attacker: Character): {
 
 export function addMemory(
   character: Character,
-  memory: Omit<Memory, "id">
+  memory: Omit<Memory, "id" | "order">
 ): void {
-  character.memories.push({ ...memory, id: createId() });
+  character.memories.push({
+    ...memory,
+    id: createId(),
+    order: getNextMemoryOrder(),
+  });
 }
 
 export function executeAction(
@@ -1133,7 +1144,7 @@ export function executeAction(
         return { success: false, message: "Cannot talk to the dead", events };
       }
 
-      if (distance(character.position, target.position) > 4) {
+      if (distance(character.position, target.position) > MAX_TALK_DISTANCE) {
         return {
           success: false,
           message: "Target too far away to talk",
@@ -1344,12 +1355,12 @@ export function executeAction(
         };
       }
 
-      // Check target is within talking distance (4 tiles)
+      // Check target is within talking distance
       const contractDist = distance(character.position, targetChar.position);
-      if (contractDist > 4) {
+      if (contractDist > MAX_TALK_DISTANCE) {
         return {
           success: false,
-          message: `${targetChar.name} is too far away (${contractDist} tiles, max 4)`,
+          message: `${targetChar.name} is too far away (${contractDist} tiles, max ${MAX_TALK_DISTANCE})`,
           events,
         };
       }
@@ -1591,7 +1602,12 @@ export function getCharacterKnowledge(
     if (distance(character.position, other.position) <= 1) {
       possibleActions.push({ type: "attack", targetCharacterId: other.id });
     }
-    if (distance(character.position, other.position) <= 4) {
+  }
+
+  // Talk works through bars/doors - based on distance only, not vision
+  for (const other of world.characters) {
+    if (other.id === character.id || !other.alive) continue;
+    if (distance(character.position, other.position) <= MAX_TALK_DISTANCE) {
       possibleActions.push({
         type: "talk",
         targetCharacterId: other.id,

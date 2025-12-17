@@ -15,6 +15,7 @@ import {
   getVisibleTiles,
   addMemory,
   distance,
+  MAX_TALK_DISTANCE,
 } from "./engine";
 import {
   getAgentDecision,
@@ -1074,13 +1075,12 @@ async function processTurn(): Promise<void> {
     let equippedThisTurn = false;
     let movedThisTurn = false;
     let conversationsThisTurn = 0;
-    const maxConversationsPerTurn = 2;
+    const maxConversationsPerTurn = 1;
     let contractsIssuedThisTurn = 0;
     const maxContractsPerTurn = 2;
     let turnEnded = false;
     let actionsThisTurn = 0;
     const maxActionsPerTurn = 3;
-    let lastFailure: string | undefined = undefined;
     let errorRetries = 0;
     const maxErrorRetries = 2;
     const turnHistory: { response: string; result: string }[] = [];
@@ -1090,7 +1090,7 @@ async function processTurn(): Promise<void> {
       renderWorld();
 
       const { action, reasoning, fullPrompt, fullResponse, error } =
-        await getAgentDecision(world, current, turnHistory, lastFailure);
+        await getAgentDecision(world, current, turnHistory);
 
       setThinkingCharacter(null);
 
@@ -1122,7 +1122,6 @@ async function processTurn(): Promise<void> {
       if (error) {
         errorRetries++;
         if (errorRetries <= maxErrorRetries) {
-          lastFailure = error;
           if (fullResponse) {
             turnHistory.push({
               response: fullResponse,
@@ -1143,11 +1142,8 @@ async function processTurn(): Promise<void> {
         break;
       }
 
-      lastFailure = undefined;
-
       // Prevent duplicate moves in one turn
       if (action.type === "move" && movedThisTurn) {
-        lastFailure = "Already moved this turn - choose a different action";
         if (fullResponse) {
           turnHistory.push({
             response: fullResponse,
@@ -1267,7 +1263,6 @@ async function processTurn(): Promise<void> {
             continue;
           }
         } else {
-          lastFailure = `MOVE failed: ${result.message}`;
           continue;
         }
       }
@@ -1282,14 +1277,12 @@ async function processTurn(): Promise<void> {
         "unequip",
       ];
       if (nonEndingActions.includes(action.type) && !result.success) {
-        lastFailure = `${action.type.toUpperCase()} failed: ${result.message}`;
         continue;
       }
 
       // Handle talk actions - start a conversation
       if (action.type === "talk" && result.success && action.message) {
         if (conversationsThisTurn >= maxConversationsPerTurn) {
-          lastFailure = `You already had ${maxConversationsPerTurn} conversations this turn`;
           continue;
         }
 
@@ -1310,14 +1303,12 @@ async function processTurn(): Promise<void> {
         conversationsThisTurn++;
         // Talk does NOT end turn - continue with other actions
       } else if (action.type === "talk" && !result.success) {
-        lastFailure = `TALK failed: ${result.message}`;
         continue;
       }
 
       // Handle contract negotiation - immediate dialog
       if (action.type === "issue_contract" && result.success) {
         if (contractsIssuedThisTurn >= maxContractsPerTurn) {
-          lastFailure = `You already issued ${maxContractsPerTurn} contracts this turn`;
           continue;
         }
 
@@ -1427,7 +1418,6 @@ async function processTurn(): Promise<void> {
         contractsIssuedThisTurn++;
         // Contracts no longer end turn - can issue up to maxContractsPerTurn
       } else if (action.type === "issue_contract" && !result.success) {
-        lastFailure = `CONTRACT failed: ${result.message}`;
         continue;
       }
 
@@ -1436,7 +1426,6 @@ async function processTurn(): Promise<void> {
         if (result.success) {
           turnEnded = true;
         } else {
-          lastFailure = `ATTACK failed: ${result.message}`;
           continue;
         }
       }
@@ -1654,12 +1643,10 @@ function selectPlayerAction(actionType: string): void {
         (c) =>
           c.alive &&
           c.id !== current.id &&
-          Math.abs(c.position.x - current.position.x) +
-            Math.abs(c.position.y - current.position.y) <=
-            4
+          distance(current.position, c.position) <= MAX_TALK_DISTANCE
       );
       if (nearby.length === 0) {
-        details.innerHTML = `<p>No one nearby</p>`;
+        details.innerHTML = `<p>No one within ${MAX_TALK_DISTANCE} tiles</p>`;
       } else {
         details.innerHTML = `
           <select id="talk-target">${nearby
@@ -1716,7 +1703,7 @@ function selectPlayerAction(actionType: string): void {
         (c) => c.alive && c.id !== current.id
       );
       const nearbyChars = otherChars.filter(
-        (c) => distance(current.position, c.position) <= 4
+        (c) => distance(current.position, c.position) <= MAX_TALK_DISTANCE
       );
       if (nearbyChars.length === 0) {
         details.innerHTML = `<p>No characters within 4 tiles to contract with</p>`;

@@ -7,7 +7,11 @@ import type {
   BloodContract,
   GameEvent,
 } from "./types";
-import { getCharacterKnowledge, getReachableTiles } from "./engine";
+import {
+  getCharacterKnowledge,
+  getReachableTiles,
+  MAX_TALK_DISTANCE,
+} from "./engine";
 import OpenAI from "openai";
 
 let openai: OpenAI | null = null;
@@ -168,11 +172,6 @@ function generateAsciiMap(world: World, character: Character): string {
     lines.push(row);
   }
 
-  lines.push("");
-  lines.push(
-    "Legend: @ = You, # = Wall, . = Floor, * = Item, ? = Unexplored, Letters = Characters"
-  );
-
   return lines.join("\n");
 }
 
@@ -254,7 +253,7 @@ function formatKnowledge(
             other.maxHp
           }, ${weapon}${trappedStatus}]`
         );
-      } else if (dist <= 4) {
+      } else if (dist <= MAX_TALK_DISTANCE) {
         lines.push(
           `  ** ${other.name} at ${formatPosition(
             position
@@ -344,35 +343,6 @@ function formatKnowledge(
     }
   }
 
-  // Show special tiles like locked doors from memory
-  const specialTiles: { type: string; x: number; y: number; dist: number }[] =
-    [];
-  for (const [key, memory] of character.mapMemory) {
-    if (memory.type === "blue_door") {
-      const [x, y] = key.split(",").map(Number);
-      const dist = manhattanDistance(pos, { x, y });
-      specialTiles.push({ type: "Blue Door (locked)", x, y, dist });
-    }
-  }
-  if (specialTiles.length > 0) {
-    lines.push(`\n=== SPECIAL TILES ===`);
-    lines.push(`Legend: | = bars (see through, can't walk), D = locked door`);
-    const hasKey = knowledge.status.inventory.some(
-      (i) => i.type === "key" && i.name.toLowerCase().includes("blue")
-    );
-    for (const tile of specialTiles) {
-      let desc = `  - ${tile.type} at (${tile.x}, ${tile.y}) - distance: ${tile.dist}`;
-      if (tile.dist === 1 && hasKey) {
-        desc += ` *** ADJACENT - can UNLOCK ${tile.x} ${tile.y} ***`;
-      } else if (tile.dist === 1) {
-        desc += ` - ADJACENT but you need a Blue Key`;
-      } else if (hasKey) {
-        desc += ` - you have the key!`;
-      }
-      lines.push(desc);
-    }
-  }
-
   // Show active contracts the character is party to
   const myContracts = world.activeContracts.filter(
     (c) => c.issuerId === character.id || c.targetId === character.id
@@ -431,9 +401,9 @@ function formatKnowledge(
   }
   const dedupedSawMemories = Array.from(latestSawByTarget.values());
 
-  // Combine: all important memories + deduplicated saw memories, sorted by turn
+  // Combine: all important memories + deduplicated saw memories, sorted by turn then order
   const allMemories = [...importantMemories, ...dedupedSawMemories].sort(
-    (a, b) => a.turn - b.turn
+    (a, b) => a.turn - b.turn || a.order - b.order
   );
 
   if (allMemories.length > 0) {
@@ -445,61 +415,56 @@ function formatKnowledge(
     lines.push(`  No memories yet.`);
   }
 
-  lines.push(`\n=== ACTIONS (chain multiple per turn) ===`);
-  lines.push(`You automatically look around at the start of your turn.`);
-  lines.push(``);
-  lines.push(`Chain these actions in one turn:`);
-  if (hasMoved) {
-    lines.push(`  - [UNAVAILABLE] MOVE - YOU ALREADY MOVED. DO NOT USE.`);
-  } else {
-    lines.push(
-      `  - MOVE x y : Move to position (max ${character.movementRange} tiles)`
-    );
-  }
-  lines.push(`  - SEARCH container_name : Search adjacent container`);
-  lines.push(`  - PICKUP x y item_name : Take item from tile at (x,y)`);
-  lines.push(
-    `  - EQUIP item_name : Equip weapon/clothing (cannot ATTACK same turn)`
-  );
-  lines.push(`  - DROP item_name : Drop item`);
-
-  // Check who can be talked to (within 4 tiles)
+  // Check who can be talked to (within 4 tiles) - for context
   const talkableChars = knowledge.visible.characters.filter(({ position }) => {
     const dist = manhattanDistance(character.position, position);
-    return dist <= 4;
+    return dist <= MAX_TALK_DISTANCE;
   });
-  if (talkableChars.length === 0) {
-    lines.push(
-      `  - [UNAVAILABLE] TALK - No one within talking range (4 tiles)`
-    );
-  } else {
+  if (talkableChars.length > 0) {
     const talkTargets = talkableChars
       .map(({ character: c, position }) => {
         const dist = manhattanDistance(character.position, position);
         return `${c.name} (${dist} tiles)`;
       })
       .join(", ");
-    lines.push(
-      `  - TALK character_name "message" : Talk to ${talkTargets}. Max 2 per turn.`
-    );
+    lines.push(`\n=== WHO YOU CAN TALK TO (4 tiles) ===`);
+    lines.push(`  ${talkTargets}`);
   }
 
-  lines.push(``);
-  lines.push(
-    `  - CONTRACT character_name "[N] terms" : Offer Blood Contract (4 tiles). Max 2 per turn.`
+  // Show special tiles like locked doors from memory
+  const specialTiles: { type: string; x: number; y: number; dist: number }[] =
+    [];
+  const hasKey = knowledge.status.inventory.some(
+    (i) => i.type === "key" && i.name.toLowerCase().includes("blue")
   );
-  lines.push(``);
-  lines.push(`  - UNLOCK x y : Use a key to unlock adjacent door`);
-  lines.push(``);
-  lines.push(`These END your turn:`);
-  lines.push(
-    `  - ATTACK character_name : Attack adjacent character (1 tile). Works unarmed (punch for 1 damage)!`
-  );
-  lines.push(`  - WAIT : End turn doing nothing`);
+  for (const [key, memory] of character.mapMemory) {
+    if (memory.type === "blue_door") {
+      const [x, y] = key.split(",").map(Number);
+      const dist = manhattanDistance(pos, { x, y });
+      specialTiles.push({ type: "Blue Door (locked)", x, y, dist });
+    }
+  }
 
-  lines.push(``);
-  lines.push(`=== YOUR MAP (from memory) ===`);
+  lines.push(`\n=== YOUR MAP (from memory) ===`);
+  lines.push(
+    `Legend: @ = you, # = wall, | = bars, D = locked door, . = floor, * = item`
+  );
   lines.push(generateAsciiMap(world, character));
+
+  if (specialTiles.length > 0) {
+    lines.push(`\nLOCKED DOORS:`);
+    for (const tile of specialTiles) {
+      let desc = `  - ${tile.type} at (${tile.x}, ${tile.y}) - distance: ${tile.dist}`;
+      if (tile.dist === 1 && hasKey) {
+        desc += ` *** ADJACENT - can UNLOCK ${tile.x} ${tile.y} ***`;
+      } else if (tile.dist === 1) {
+        desc += ` - ADJACENT but you need a Blue Key`;
+      } else if (hasKey) {
+        desc += ` - you have the key!`;
+      }
+      lines.push(desc);
+    }
+  }
 
   return lines.join("\n");
 }
@@ -1011,8 +976,7 @@ export type TurnHistoryEntry = {
 export async function getAgentDecision(
   world: World,
   character: Character,
-  turnHistory: TurnHistoryEntry[] = [],
-  lastFailure?: string
+  turnHistory: TurnHistoryEntry[] = []
 ): Promise<{
   action: Action;
   reasoning: string | null; // kept as "reasoning" externally for compatibility
@@ -1050,26 +1014,10 @@ export async function getAgentDecision(
   if (turnHistory.length > 0) {
     let historySection = `\n=== WHAT YOU'VE DONE THIS TURN ===\n`;
     for (let i = 0; i < turnHistory.length; i++) {
-      try {
-        const parsed = JSON.parse(turnHistory[i].response);
-        const thought = parsed.thought
-          ? `You thought: "${parsed.thought}"`
-          : "";
-        const action = parsed.action || "unknown";
-        let actionDesc = action;
-        if (action === "MOVE" && parsed.x !== null && parsed.y !== null) {
-          actionDesc = `MOVED to (${parsed.x}, ${parsed.y})`;
-        } else if (parsed.target) {
-          actionDesc = `${action} ${parsed.target}`;
-        }
-        historySection += `${i + 1}. ${
-          thought ? thought + " → " : ""
-        }${actionDesc}\n`;
-        historySection += `   Result: ${turnHistory[i].result}\n\n`;
-      } catch {
-        historySection += `${i + 1}. ${turnHistory[i].response}\n`;
-        historySection += `   Result: ${turnHistory[i].result}\n\n`;
-      }
+      const rawJson = turnHistory[i].response;
+      const result = turnHistory[i].result;
+      historySection += `${i + 1}. Your response: ${rawJson}\n`;
+      historySection += `   Result: ${result}\n\n`;
     }
     if (hasMoved) {
       historySection += `⛔ MOVE UNAVAILABLE. Choose: SEARCH, PICKUP, EQUIP, ATTACK, TALK, or WAIT.\n`;
@@ -1079,15 +1027,94 @@ export async function getAgentDecision(
     situationDescription = situationDescription + historySection;
   }
 
-  if (lastFailure) {
-    situationDescription =
-      `⚠️ YOUR LAST ACTION FAILED: ${lastFailure}\n\n` + situationDescription;
-  }
-
   // Build available actions list with crossed-out unavailable ones
   const moveAction = hasMoved
     ? "- [UNAVAILABLE] MOVE - YOU ALREADY MOVED THIS TURN. DO NOT USE MOVE."
     : "- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates)";
+
+  // Build PICKUP action - list adjacent items that can be picked up
+  const adjacentPickupItems: { name: string; x: number; y: number }[] = [];
+  for (const { item, position } of knowledge.visible.items) {
+    const dist = manhattanDistance(character.position, position);
+    if (dist === 1 && item.type !== "container") {
+      adjacentPickupItems.push({
+        name: item.name,
+        x: position.x,
+        y: position.y,
+      });
+    } else if (
+      dist === 1 &&
+      item.type === "container" &&
+      item.searched &&
+      item.contents
+    ) {
+      for (const content of item.contents) {
+        adjacentPickupItems.push({
+          name: content.name,
+          x: position.x,
+          y: position.y,
+        });
+      }
+    }
+  }
+  const pickupAction =
+    adjacentPickupItems.length > 0
+      ? `- PICKUP: Pick up adjacent item. Available: ${adjacentPickupItems
+          .map((i) => `"${i.name}" at (${i.x},${i.y})`)
+          .join(", ")}`
+      : "- [UNAVAILABLE] PICKUP - No items adjacent to pick up.";
+
+  // Build UNLOCK action - list adjacent locked doors if has key
+  const hasKey = knowledge.status.inventory.some((i) => i.type === "key");
+  const adjacentLockedDoors: { x: number; y: number }[] = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      if (Math.abs(dx) + Math.abs(dy) !== 1) continue;
+      const nx = character.position.x + dx;
+      const ny = character.position.y + dy;
+      if (nx >= 0 && ny >= 0 && nx < world.width && ny < world.height) {
+        const tile = world.tiles[ny][nx];
+        if (tile.type === "blue_door") {
+          adjacentLockedDoors.push({ x: nx, y: ny });
+        }
+      }
+    }
+  }
+  let unlockAction: string;
+  if (adjacentLockedDoors.length > 0 && hasKey) {
+    unlockAction = `- UNLOCK: Unlock adjacent door. Available: ${adjacentLockedDoors
+      .map((d) => `(${d.x},${d.y})`)
+      .join(", ")}`;
+  } else if (adjacentLockedDoors.length > 0) {
+    unlockAction = `- [UNAVAILABLE] UNLOCK - Adjacent door at ${adjacentLockedDoors
+      .map((d) => `(${d.x},${d.y})`)
+      .join(", ")} but you need a key.`;
+  } else if (hasKey) {
+    unlockAction =
+      "- [UNAVAILABLE] UNLOCK - You have a key but no locked doors are adjacent.";
+  } else {
+    unlockAction =
+      "- [UNAVAILABLE] UNLOCK - No adjacent locked doors and no key.";
+  }
+
+  // Build TALK action - list characters within talk distance (works through bars/doors)
+  const talkableCharacters = world.characters
+    .filter(
+      (c) =>
+        c.id !== character.id &&
+        c.alive &&
+        manhattanDistance(character.position, c.position) <= MAX_TALK_DISTANCE
+    )
+    .map((c) => ({
+      name: c.name,
+      dist: manhattanDistance(character.position, c.position),
+    }));
+  const talkAction =
+    talkableCharacters.length > 0
+      ? `- TALK: Speak to character within ${MAX_TALK_DISTANCE} tiles (works through bars). Available: ${talkableCharacters
+          .map((c) => `${c.name} (${c.dist} tiles)`)
+          .join(", ")}. Does NOT end turn (max 1 conversation per turn).`
+      : `- [UNAVAILABLE] TALK - No characters within ${MAX_TALK_DISTANCE} tiles.`;
 
   // Add continuity guidance if there's history
   const continuityNote =
@@ -1102,12 +1129,12 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 AVAILABLE ACTIONS:
 ${moveAction}
 - ATTACK: Attack ADJACENT character (1 tile away, diagonal not allowed). Requires target name. Ends turn.
-- TALK: Speak to character within 4 tiles. Requires target and message. They can respond, starting a conversation. Does NOT end turn (max 2 per turn).
+${talkAction}
 - SEARCH: Search adjacent container. Requires target (container name).
-- PICKUP: Pick up item at coordinates. Requires x, y, and target (item name).
+${pickupAction}
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
-- UNLOCK: Use a key to unlock an ADJACENT locked door. Requires x, y coordinates of the door.
+${unlockAction}
 - DROP: Drop item from inventory. Requires target (item name).
 - CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn.
 - SIGN: Accept a Blood Contract being offered to you. Use during contract negotiation.

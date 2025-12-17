@@ -113,6 +113,7 @@ export type MemoryType =
 export type Memory = {
   id: string;
   turn: number;
+  order: number; // Chronological order within the turn
   type: MemoryType;
   description: string;
   location?: Position;
