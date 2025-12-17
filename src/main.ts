@@ -1,4 +1,4 @@
-import { createBloodsportMap } from "./world-builder";
+import { createCageMap } from "./world-builder";
 import {
   render,
   getCanvasSize,
@@ -21,6 +21,7 @@ import {
   initializeAgent,
   judgeContract,
   getContractDecision,
+  getConversationResponse,
 } from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
 
@@ -815,36 +816,36 @@ async function handleConversation(
         break; // Player chose to end conversation
       }
     } else {
-      // AI decides response
-      const prompt = `${listener.name} just said to you: "${lastMessage}"
-
-You can respond with TALK, or choose to end the conversation with WAIT (say nothing more).
-This is a conversation - you do NOT need to move or take other actions right now.`;
-
+      // AI decides response - using constrained schema that only allows TALK or WAIT
       setThinkingCharacter(speaker.id);
       renderWorld();
 
-      const { action, reasoning, fullPrompt, fullResponse } =
-        await getAgentDecision(world, speaker, [], prompt);
+      const { wantsToRespond, thought, message, fullPrompt, fullResponse } =
+        await getConversationResponse(
+          world,
+          speaker,
+          listener.name,
+          lastMessage
+        );
 
       setThinkingCharacter(null);
 
-      if (reasoning) {
-        showThoughtBubble(speaker, reasoning);
+      if (thought) {
+        showThoughtBubble(speaker, thought);
         if (!fastMode) {
           await delay(1500);
         }
         hideThoughtBubble();
       }
 
-      addReasoningEntry(speaker, reasoning, fullPrompt, fullResponse);
+      addReasoningEntry(speaker, thought, fullPrompt, fullResponse);
 
-      // If they don't talk back, end conversation
-      if (action.type !== "talk" || !action.message) {
+      // If they don't want to talk back, end conversation
+      if (!wantsToRespond || !message) {
         break;
       }
 
-      responseMessage = action.message;
+      responseMessage = message;
     }
 
     // Show their response
@@ -2434,7 +2435,7 @@ function showApiKeyPrompt(): void {
 }
 
 function init(): void {
-  world = createBloodsportMap();
+  world = createCageMap(); // Options: createBloodsportMap(), createCageMap()
 
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
@@ -2502,8 +2503,7 @@ function init(): void {
     turn: 0,
     type: "move",
     actorId: "",
-    description:
-      "THE HUNT BEGINS. Two armed hunters. One unarmed prey. Only the killer survives...",
+    description: "",
   };
   allEvents.push(initialEvent);
   addLogEntry(initialEvent);

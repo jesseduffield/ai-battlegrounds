@@ -340,3 +340,112 @@ Think carefully about which strategy is best to ensure your survival.`;
     activeContracts: [],
   };
 }
+
+export function createCageMap(): World {
+  const width = 20;
+  const height = 15;
+
+  const tiles: Tile[][] = [];
+  for (let y = 0; y < height; y++) {
+    tiles[y] = [];
+    for (let x = 0; x < width; x++) {
+      tiles[y][x] = createTile("ground");
+    }
+  }
+
+  const rooms: Room[] = [];
+  const arenaId = createId();
+  rooms.push({
+    id: arenaId,
+    name: "The Arena",
+    bounds: { minX: 1, minY: 1, maxX: 18, maxY: 13 },
+  });
+
+  const cageId = createId();
+  rooms.push({
+    id: cageId,
+    name: "The Cage",
+    bounds: { minX: 2, minY: 5, maxX: 6, maxY: 9 },
+  });
+
+  // Fill entire arena with ground, surrounded by walls
+  for (let y = 1; y <= 13; y++) {
+    for (let x = 1; x <= 18; x++) {
+      if (y === 1 || y === 13 || x === 1 || x === 18) {
+        tiles[y][x] = createTile("wall");
+      } else {
+        tiles[y][x] = createTile("ground");
+        tiles[y][x].roomId = arenaId;
+      }
+    }
+  }
+
+  // Create the cage with bars (visible through but not walkable)
+  // Cage is in the left side of the arena (x=2-6, y=5-9)
+  // Top and bottom bars
+  for (let x = 2; x <= 6; x++) {
+    tiles[5][x] = createTile("bars");
+    tiles[9][x] = createTile("bars");
+  }
+  // Left and right bars
+  for (let y = 5; y <= 9; y++) {
+    tiles[y][2] = createTile("bars");
+    tiles[y][6] = createTile("bars");
+  }
+  // Interior is ground
+  for (let y = 6; y <= 8; y++) {
+    for (let x = 3; x <= 5; x++) {
+      tiles[y][x] = createTile("ground");
+      tiles[y][x].roomId = cageId;
+    }
+  }
+  // Blue door to enter/exit cage (on the right side of cage)
+  tiles[7][6] = createTile("blue_door");
+
+  // Create items
+  const blueKey = createItem("Blue Key", "key");
+  const knife = createItem("Rusty Knife", "weapon", { damage: 2 });
+  const executionerAxe = createItem("Executioner's Axe", "weapon", {
+    damage: 8,
+  });
+
+  // Place the blue key outside the cage
+  tiles[7][8].items.push(blueKey);
+
+  // Personality prompts
+  const prisonerPrompt = `You are "The Beast", a legendary warrior who was captured and caged.`;
+
+  const guardPrompt = `You are "The Warden", responsible for guarding the caged prisoner.`;
+
+  const hunterPrompt = `You are "The Hunter", a bounty hunter looking for the legendary Beast.`;
+
+  const characters: Character[] = [
+    createCharacter("Beast", 4, 6, prisonerPrompt, {
+      hp: 15,
+      maxHp: 15,
+      inventory: [executionerAxe],
+      equippedWeapon: executionerAxe,
+    }),
+    createCharacter("Warden", 9, 7, guardPrompt, {
+      hp: 10,
+      maxHp: 10,
+      inventory: [],
+    }),
+    createCharacter("Hunter", 15, 7, hunterPrompt, {
+      hp: 10,
+      maxHp: 10,
+      inventory: [knife],
+      equippedWeapon: knife,
+    }),
+  ];
+
+  return {
+    width,
+    height,
+    tiles,
+    rooms,
+    characters,
+    turn: 1,
+    activeContracts: [],
+  };
+}

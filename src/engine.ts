@@ -24,8 +24,8 @@ export function positionsEqual(a: Position, b: Position): boolean {
   return a.x === b.x && a.y === b.y;
 }
 
-function isBlocking(tile: Tile): boolean {
-  return tile.type === "wall";
+function blocksVision(tile: Tile): boolean {
+  return tile.type === "wall" || tile.type === "blue_door";
 }
 
 function hasContainer(tile: Tile): boolean {
@@ -33,7 +33,8 @@ function hasContainer(tile: Tile): boolean {
 }
 
 function canWalkThrough(tile: Tile): boolean {
-  if (tile.type !== "ground" && tile.type !== "door" && tile.type !== "grass") {
+  const walkableTiles = ["ground", "door", "grass"];
+  if (!walkableTiles.includes(tile.type)) {
     return false;
   }
   return !hasContainer(tile);
@@ -160,7 +161,7 @@ function castShadowsInOctant(
       visible.add(`${x},${y}`);
 
       // If this tile blocks vision, add it to shadows
-      if (isBlocking(world.tiles[y][x])) {
+      if (blocksVision(world.tiles[y][x])) {
         addShadow(shadows, tileStart, tileEnd);
       }
     }
@@ -782,6 +783,22 @@ export function executeAction(
         source: "witnessed",
       });
 
+      // Add memories for witnesses who see this pickup
+      for (const other of world.characters) {
+        if (other.id === character.id || !other.alive) continue;
+        if (lineOfSight(world, other.position, character.position)) {
+          addMemory(other, {
+            turn: world.turn,
+            type: "picked_up_item",
+            description: `Saw ${character.name} pick up ${item.name}${
+              fromContainer ? ` from ${fromContainer.name}` : ""
+            }`,
+            characterId: character.id,
+            source: "witnessed",
+          });
+        }
+      }
+
       events.push({
         turn: world.turn,
         type: "pickup",
@@ -804,15 +821,28 @@ export function executeAction(
     }
 
     case "drop": {
-      if (!action.targetItemId) {
+      if (!action.targetItemId && !action.targetItemName) {
         return { success: false, message: "No item specified", events };
       }
 
-      const itemIndex = character.inventory.findIndex(
-        (i) => i.id === action.targetItemId
-      );
+      let itemIndex = -1;
+      if (action.targetItemId) {
+        itemIndex = character.inventory.findIndex(
+          (i) => i.id === action.targetItemId
+        );
+      } else if (action.targetItemName) {
+        itemIndex = character.inventory.findIndex((i) =>
+          i.name.toLowerCase().includes(action.targetItemName!.toLowerCase())
+        );
+      }
       if (itemIndex < 0) {
-        return { success: false, message: "Item not in inventory", events };
+        return {
+          success: false,
+          message: `"${
+            action.targetItemName || action.targetItemId
+          }" not in inventory`,
+          events,
+        };
       }
 
       const item = character.inventory[itemIndex];
@@ -1282,7 +1312,7 @@ export function executeAction(
       ) {
         return {
           success: false,
-          message: "Contract expiry must be between 1 and 20 turns",
+          message: "Contract expiry must be between 1 and 5 turns",
           events,
         };
       }
@@ -1366,6 +1396,114 @@ export function executeAction(
       return {
         success: true,
         message: "Declined the contract",
+        events,
+      };
+    }
+
+    case "unlock": {
+      if (!action.targetPosition) {
+        return {
+          success: false,
+          message: "No target position specified",
+          events,
+        };
+      }
+
+      const { x, y } = action.targetPosition;
+
+      // Check if adjacent
+      const dx = Math.abs(x - character.position.x);
+      const dy = Math.abs(y - character.position.y);
+      if (dx + dy !== 1) {
+        return {
+          success: false,
+          message: "Door must be adjacent to unlock",
+          events,
+        };
+      }
+
+      const tile = world.tiles[y][x];
+      if (tile.type !== "blue_door") {
+        return {
+          success: false,
+          message: "There's no locked door there",
+          events,
+        };
+      }
+
+      // Check for blue key in inventory
+      const keyIndex = character.inventory.findIndex(
+        (item) =>
+          item.type === "key" && item.name.toLowerCase().includes("blue")
+      );
+      if (keyIndex === -1) {
+        return {
+          success: false,
+          message: "You need a Blue Key to unlock this door",
+          events,
+        };
+      }
+
+      // Consume the key
+      const keyName = character.inventory[keyIndex].name;
+      character.inventory.splice(keyIndex, 1);
+
+      // Change tile to ground
+      tile.type = "ground";
+
+      const keyConsumedEvent: GameEvent = {
+        turn: world.turn,
+        type: "drop",
+        actorId: character.id,
+        description: `🔑 ${character.name} uses ${keyName} (key consumed)`,
+      };
+      events.push(keyConsumedEvent);
+
+      const unlockEvent: GameEvent = {
+        turn: world.turn,
+        type: "search",
+        actorId: character.id,
+        position: action.targetPosition,
+        description: `🔓 ${character.name} unlocks the blue door at (${x}, ${y})!`,
+      };
+      events.push(unlockEvent);
+
+      // Add memory for the actor
+      addMemory(character, {
+        turn: world.turn,
+        type: "searched_container",
+        description: `Unlocked the blue door at (${x}, ${y}) using ${keyName} - the door is now open!`,
+        source: "witnessed",
+      });
+
+      // Add memories for witnesses
+      for (const other of world.characters) {
+        if (other.id === character.id || !other.alive) continue;
+        if (lineOfSight(world, other.position, action.targetPosition)) {
+          addMemory(other, {
+            turn: world.turn,
+            type: "searched_container",
+            description: `Saw ${character.name} use ${keyName} to unlock the blue door at (${x}, ${y}) - the key was consumed and the door is now open!`,
+            characterId: character.id,
+            source: "witnessed",
+          });
+        }
+      }
+
+      // Update map memory for all characters who can see this tile
+      for (const c of world.characters) {
+        if (!c.alive) continue;
+        if (lineOfSight(world, c.position, action.targetPosition)) {
+          c.mapMemory.set(`${x},${y}`, {
+            type: "ground",
+            lastSeenTurn: world.turn,
+          });
+        }
+      }
+
+      return {
+        success: true,
+        message: `Unlocked the door at (${x}, ${y})`,
         events,
       };
     }

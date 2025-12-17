@@ -150,6 +150,10 @@ function generateAsciiMap(world: World, character: Character): string {
           row += memory.characterName.charAt(0).toUpperCase();
         } else if (memory.type === "wall") {
           row += "#";
+        } else if (memory.type === "bars") {
+          row += "|";
+        } else if (memory.type === "blue_door") {
+          row += "D";
         } else if (memory.type === "door") {
           row += "+";
         } else if (memory.items && memory.items.length > 0) {
@@ -244,7 +248,11 @@ function formatKnowledge(
 
       if (canAttack) {
         lines.push(
-          `  *** ${other.name} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${other.maxHp}, ${weapon}${trappedStatus}]`
+          `  *** ${other.name} at ${formatPosition(
+            position
+          )} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${
+            other.maxHp
+          }, ${weapon}${trappedStatus}]`
         );
       } else if (dist <= 4) {
         lines.push(
@@ -333,6 +341,35 @@ function formatKnowledge(
       }
 
       lines.push(`  - ${desc}`);
+    }
+  }
+
+  // Show special tiles like locked doors from memory
+  const specialTiles: { type: string; x: number; y: number; dist: number }[] =
+    [];
+  for (const [key, memory] of character.mapMemory) {
+    if (memory.type === "blue_door") {
+      const [x, y] = key.split(",").map(Number);
+      const dist = manhattanDistance(pos, { x, y });
+      specialTiles.push({ type: "Blue Door (locked)", x, y, dist });
+    }
+  }
+  if (specialTiles.length > 0) {
+    lines.push(`\n=== SPECIAL TILES ===`);
+    lines.push(`Legend: | = bars (see through, can't walk), D = locked door`);
+    const hasKey = knowledge.status.inventory.some(
+      (i) => i.type === "key" && i.name.toLowerCase().includes("blue")
+    );
+    for (const tile of specialTiles) {
+      let desc = `  - ${tile.type} at (${tile.x}, ${tile.y}) - distance: ${tile.dist}`;
+      if (tile.dist === 1 && hasKey) {
+        desc += ` *** ADJACENT - can UNLOCK ${tile.x} ${tile.y} ***`;
+      } else if (tile.dist === 1) {
+        desc += ` - ADJACENT but you need a Blue Key`;
+      } else if (hasKey) {
+        desc += ` - you have the key!`;
+      }
+      lines.push(desc);
     }
   }
 
@@ -425,13 +462,34 @@ function formatKnowledge(
     `  - EQUIP item_name : Equip weapon/clothing (cannot ATTACK same turn)`
   );
   lines.push(`  - DROP item_name : Drop item`);
-  lines.push(
-    `  - TALK character_name "message" : Start conversation (4 tiles). They can respond. Max 2 per turn.`
-  );
+
+  // Check who can be talked to (within 4 tiles)
+  const talkableChars = knowledge.visible.characters.filter(({ position }) => {
+    const dist = manhattanDistance(character.position, position);
+    return dist <= 4;
+  });
+  if (talkableChars.length === 0) {
+    lines.push(
+      `  - [UNAVAILABLE] TALK - No one within talking range (4 tiles)`
+    );
+  } else {
+    const talkTargets = talkableChars
+      .map(({ character: c, position }) => {
+        const dist = manhattanDistance(character.position, position);
+        return `${c.name} (${dist} tiles)`;
+      })
+      .join(", ");
+    lines.push(
+      `  - TALK character_name "message" : Talk to ${talkTargets}. Max 2 per turn.`
+    );
+  }
+
   lines.push(``);
   lines.push(
     `  - CONTRACT character_name "[N] terms" : Offer Blood Contract (4 tiles). Max 2 per turn.`
   );
+  lines.push(``);
+  lines.push(`  - UNLOCK x y : Use a key to unlock adjacent door`);
   lines.push(``);
   lines.push(`These END your turn:`);
   lines.push(
@@ -457,6 +515,7 @@ const VALID_ACTION_TYPES = [
   "equip",
   "place",
   "contract",
+  "unlock",
   "sign",
   "decline",
   "wait",
@@ -489,6 +548,7 @@ const actionResponseSchema = {
           "EQUIP",
           "PLACE",
           "CONTRACT",
+          "UNLOCK",
           "WAIT",
         ],
         description: "The action type",
@@ -519,7 +579,7 @@ const actionResponseSchema = {
       expiry: {
         type: ["number", "null"],
         description:
-          "Contract duration in turns for CONTRACT action (1-20, null if not applicable)",
+          "Contract duration in turns for CONTRACT action (1-5, null if not applicable)",
       },
     },
     required: [
@@ -555,6 +615,32 @@ const contractNegotiationSchema = {
       message: {
         type: ["string", "null"],
         description: "Optional message to the other party",
+      },
+    },
+    required: ["thought", "action", "message"],
+    additionalProperties: false,
+  },
+};
+
+// Separate schema for conversation responses - only TALK or WAIT allowed
+const conversationResponseSchema = {
+  name: "conversation_response",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      thought: {
+        type: ["string", "null"],
+        description: "Brief thought about what to say (or null)",
+      },
+      action: {
+        type: "string",
+        enum: ["TALK", "WAIT"],
+        description: "TALK to respond, WAIT to end the conversation",
+      },
+      message: {
+        type: ["string", "null"],
+        description: "What you say (required for TALK, null for WAIT)",
       },
     },
     required: ["thought", "action", "message"],
@@ -841,10 +927,10 @@ function parseJsonAction(
         };
       }
       const expiry = jsonResponse.expiry;
-      if (expiry < 1 || expiry > 20) {
+      if (expiry < 1 || expiry > 5) {
         return {
           action: null,
-          error: "CONTRACT expiry must be between 1 and 20 turns",
+          error: "CONTRACT expiry must be between 1 and 5 turns",
         };
       }
       const contractContents = jsonResponse.terms;
@@ -884,6 +970,21 @@ function parseJsonAction(
         action: {
           type: "decline_contract",
           message: jsonResponse.message || undefined,
+        },
+        error: null,
+      };
+
+    case "unlock":
+      if (jsonResponse.x === null || jsonResponse.y === null) {
+        return {
+          action: null,
+          error: "UNLOCK requires x,y coordinates of the door",
+        };
+      }
+      return {
+        action: {
+          type: "unlock",
+          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
         },
         error: null,
       };
@@ -1006,8 +1107,9 @@ ${moveAction}
 - PICKUP: Pick up item at coordinates. Requires x, y, and target (item name).
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
+- UNLOCK: Use a key to unlock an ADJACENT locked door. Requires x, y coordinates of the door.
 - DROP: Drop item from inventory. Requires target (item name).
-- CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-20 turns), and optional message (your pitch). Max 2 per turn.
+- CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn.
 - SIGN: Accept a Blood Contract being offered to you. Use during contract negotiation.
 - WAIT: End turn. No parameters.
 
@@ -1023,13 +1125,13 @@ ${
   turnHistory.length > 0
     ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
 {"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
-{"thought": null, "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "Let's team up!", "terms": "Neither party attacks the other", "expiry": 10}
+{"thought": null, "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "Let's team up!", "terms": "Neither party attacks the other", "expiry": 5}
 {"thought": null, "action": "SIGN", "x": null, "y": null, "target": null, "message": "Deal.", "terms": null, "expiry": null}
 {"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null, "terms": null, "expiry": null}`
     : `{"thought": "There he is.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
 {"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
 {"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
-{"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": 15}`
+{"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": 5}`
 }`;
 
   const userPrompt = `${character.personalityPrompt}
@@ -1150,7 +1252,7 @@ Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4.1",
+      model: "gpt-5.2",
       messages: [
         {
           role: "system",
@@ -1187,6 +1289,94 @@ Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
       thought: "Error processing decision",
       message: null,
       fullPrompt: prompt,
+      fullResponse: "",
+    };
+  }
+}
+
+export type ConversationResponse = {
+  wantsToRespond: boolean;
+  thought: string | null;
+  message: string | null;
+  fullPrompt: string;
+  fullResponse: string;
+};
+
+export async function getConversationResponse(
+  world: World,
+  speaker: Character,
+  listenerName: string,
+  lastMessage: string
+): Promise<ConversationResponse> {
+  if (!openai) {
+    return {
+      wantsToRespond: false,
+      thought: "No AI connection",
+      message: null,
+      fullPrompt: "",
+      fullResponse: "",
+    };
+  }
+
+  // Get full knowledge context for the speaker
+  const knowledge = getCharacterKnowledge(world, speaker);
+  const situationDescription = formatKnowledge(world, speaker, knowledge, true);
+
+  const systemPrompt = `You are ${speaker.name}. ${speaker.personalityPrompt}
+
+This is a conversation response. You can ONLY respond with:
+- TALK: Say something back (requires a message)
+- WAIT: End the conversation (say nothing more)
+
+No other actions are allowed.
+
+Respond with JSON:
+- thought: Brief thought (or null)
+- action: "TALK" or "WAIT"
+- message: What you say (required for TALK, null for WAIT)`;
+
+  const userPrompt = `${listenerName} just said to you: "${lastMessage}"
+
+${situationDescription}
+
+How do you respond?`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.2",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: conversationResponseSchema,
+      },
+      max_completion_tokens: 300,
+      temperature: 0.7,
+    });
+
+    const content = response.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(content) as {
+      thought: string | null;
+      action: string;
+      message: string | null;
+    };
+
+    return {
+      wantsToRespond: parsed.action.toUpperCase() === "TALK",
+      thought: parsed.thought,
+      message: parsed.message,
+      fullPrompt: `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`,
+      fullResponse: content,
+    };
+  } catch (err) {
+    console.error("Conversation response error:", err);
+    return {
+      wantsToRespond: false,
+      thought: "Error processing response",
+      message: null,
+      fullPrompt: `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`,
       fullResponse: "",
     };
   }
@@ -1260,7 +1450,7 @@ If a party died during the contract period, they cannot be a violator (death rel
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5.2",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: 500,

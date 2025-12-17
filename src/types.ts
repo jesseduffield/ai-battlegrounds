@@ -3,7 +3,13 @@ export type Position = {
   y: number;
 };
 
-export type TileType = "ground" | "wall" | "door" | "grass";
+export type TileType =
+  | "ground"
+  | "wall"
+  | "door"
+  | "grass"
+  | "bars"
+  | "blue_door";
 
 export type PlacedTrap = {
   id: string;
@@ -28,6 +34,7 @@ export type ItemType =
   | "container"
   | "trap"
   | "contract"
+  | "key"
   | "misc";
 
 export type BloodContract = {
@@ -144,6 +151,7 @@ export type ActionType =
   | "issue_contract"
   | "sign_contract"
   | "decline_contract"
+  | "unlock"
   | "wait";
 
 export type Action = {

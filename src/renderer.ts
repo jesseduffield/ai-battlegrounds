@@ -25,6 +25,9 @@ const COLORS = {
   notVisible: "rgba(0, 0, 0, 0.5)",
   trap: "#8B4513",
   trapTeeth: "#666",
+  bars: "#707070",
+  blueDoor: "#3a7ab8",
+  blueDoorFrame: "#2a5a88",
 };
 
 const CHARACTER_COLORS: Record<string, { body: string; accent: string }> = {
@@ -39,6 +42,10 @@ const CHARACTER_COLORS: Record<string, { body: string; accent: string }> = {
   Luna: { body: "#9b59b6", accent: "#bb77d6" },
   Vex: { body: "#27ae60", accent: "#3dd6b0" },
   Nova: { body: "#3498db", accent: "#5dade2" },
+  // Cage map
+  Beast: { body: "#8b0000", accent: "#dc143c" },
+  Warden: { body: "#4a4a4a", accent: "#7a7a7a" },
+  Hunter: { body: "#2f4f4f", accent: "#5f8f8f" },
 };
 
 const DEFAULT_CHARACTER_COLORS = [
@@ -230,6 +237,34 @@ function drawTile(
         const dy = ((y * 13 + i * 19) % 24) + 4;
         ctx.fillRect(px + dx, py + dy, 1, 4);
       }
+      break;
+
+    case "bars":
+      // Draw ground behind bars
+      ctx.fillStyle = COLORS.ground;
+      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+      // Draw vertical bars
+      ctx.fillStyle = COLORS.bars;
+      for (let i = 0; i < 4; i++) {
+        const barX = px + 4 + i * 8;
+        ctx.fillRect(barX, py, 3, TILE_SIZE);
+      }
+      // Draw horizontal bar at top and bottom
+      ctx.fillRect(px, py + 2, TILE_SIZE, 2);
+      ctx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 2);
+      break;
+
+    case "blue_door":
+      // Draw door frame
+      ctx.fillStyle = COLORS.blueDoorFrame;
+      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+      // Draw door panel
+      ctx.fillStyle = COLORS.blueDoor;
+      ctx.fillRect(px + 4, py + 2, TILE_SIZE - 8, TILE_SIZE - 4);
+      // Draw lock symbol
+      ctx.fillStyle = "#ffd700";
+      ctx.fillRect(px + TILE_SIZE / 2 - 3, py + TILE_SIZE / 2 - 2, 6, 4);
+      ctx.fillRect(px + TILE_SIZE / 2 - 2, py + TILE_SIZE / 2 - 5, 4, 3);
       break;
   }
 }
