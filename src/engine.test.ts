@@ -25,6 +25,7 @@ function createTestWorld(width: number, height: number): World {
     rooms: [],
     turn: 0,
     activeContracts: [],
+    events: [],
   };
 }
 
@@ -41,7 +42,6 @@ function createTestCharacter(
     hp: 10,
     maxHp: 10,
     inventory: [],
-    memories: [],
     movementRange: 5,
     viewDistance: 10,
     personalityPrompt: "",

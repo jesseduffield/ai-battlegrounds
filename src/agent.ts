@@ -364,52 +364,9 @@ function formatKnowledge(
 
   lines.push(`\n=== YOUR MEMORIES ===`);
 
-  // Separate important memories from "saw X" observations
-  const importantTypes = [
-    "thought",
-    "attacked",
-    "was_attacked",
-    "character_died",
-    "witnessed_attack",
-    "saw_move",
-    "picked_up_item",
-    "searched_container",
-    "talked_to",
-    "heard_about",
-    "trap_triggered",
-    "placed_trap",
-    "issued_contract",
-    "signed_contract",
-    "contract_judged",
-  ];
-
-  const importantMemories = knowledge.memories.filter((m) =>
-    importantTypes.includes(m.type)
-  );
-
-  // For "saw" memories, only keep the most recent sighting of each thing
-  const sawMemories = knowledge.memories.filter(
-    (m) => m.type === "saw_character" || m.type === "saw_item"
-  );
-  const latestSawByTarget = new Map<string, (typeof sawMemories)[0]>();
-  for (const mem of sawMemories) {
-    const key = mem.characterId ?? mem.itemId ?? mem.description;
-    const existing = latestSawByTarget.get(key);
-    if (!existing || mem.turn > existing.turn) {
-      latestSawByTarget.set(key, mem);
-    }
-  }
-  const dedupedSawMemories = Array.from(latestSawByTarget.values());
-
-  // Combine: all important memories + deduplicated saw memories, sorted by turn then order
-  const allMemories = [...importantMemories, ...dedupedSawMemories].sort(
-    (a, b) => a.turn - b.turn || a.order - b.order
-  );
-
-  if (allMemories.length > 0) {
-    for (const memory of allMemories) {
-      const source = memory.source === "witnessed" ? "" : ` (told by someone)`;
-      lines.push(`  [Turn ${memory.turn}] ${memory.description}${source}`);
+  if (knowledge.witnessedEvents.length > 0) {
+    for (const event of knowledge.witnessedEvents) {
+      lines.push(`  [Turn ${event.turn}] ${event.description}`);
     }
   } else {
     lines.push(`  No memories yet.`);
@@ -469,27 +426,9 @@ function formatKnowledge(
   return lines.join("\n");
 }
 
-// Valid action types
-const VALID_ACTION_TYPES = [
-  "move",
-  "attack",
-  "talk",
-  "search",
-  "pickup",
-  "drop",
-  "equip",
-  "place",
-  "contract",
-  "unlock",
-  "sign",
-  "decline",
-  "wait",
-] as const;
-
-type ValidActionType = (typeof VALID_ACTION_TYPES)[number];
-
-// JSON Schema for structured output - ONE action per response
-// Note: strict mode requires all properties in 'required', so we use nullable types
+// JSON Schema for structured output - flat object with nullable fields
+// OpenAI doesn't support anyOf at top level, so we use nullable types
+// TypeScript discriminated union + parseJsonAction provide the type safety
 const actionResponseSchema = {
   name: "game_action",
   strict: true,
@@ -498,13 +437,13 @@ const actionResponseSchema = {
     properties: {
       thought: {
         type: ["string", "null"],
-        description:
-          "REQUIRED on first action of turn. Short, natural thought. null on follow-up actions.",
+        description: "Brief thought (required on first action of turn)",
       },
       action: {
         type: "string",
         enum: [
           "MOVE",
+          "MOVE_TO",
           "ATTACK",
           "TALK",
           "SEARCH",
@@ -516,36 +455,13 @@ const actionResponseSchema = {
           "UNLOCK",
           "WAIT",
         ],
-        description: "The action type",
       },
-      x: {
-        type: ["number", "null"],
-        description: "X coordinate for MOVE or PLACE (null if not applicable)",
-      },
-      y: {
-        type: ["number", "null"],
-        description: "Y coordinate for MOVE or PLACE (null if not applicable)",
-      },
-      target: {
-        type: ["string", "null"],
-        description:
-          "Target name for ATTACK, TALK, SEARCH, PICKUP, DROP, EQUIP, PLACE, or MOVE-to-target (null if not applicable)",
-      },
-      message: {
-        type: ["string", "null"],
-        description:
-          "Message content for TALK or pitch for CONTRACT (null if not applicable)",
-      },
-      terms: {
-        type: ["string", "null"],
-        description:
-          "Contract terms for CONTRACT action (null if not applicable)",
-      },
-      expiry: {
-        type: ["number", "null"],
-        description:
-          "Contract duration in turns for CONTRACT action (1-5, null if not applicable)",
-      },
+      x: { type: ["number", "null"] },
+      y: { type: ["number", "null"] },
+      target: { type: ["string", "null"] },
+      message: { type: ["string", "null"] },
+      terms: { type: ["string", "null"] },
+      expiry: { type: ["number", "null"] },
     },
     required: [
       "thought",
@@ -613,6 +529,7 @@ const conversationResponseSchema = {
   },
 };
 
+// Flat response type matching the JSON schema - all optional fields nullable
 type JsonResponse = {
   thought: string | null;
   action: string;
@@ -631,274 +548,234 @@ function parseJsonAction(
   character: Character
 ): { action: Action | null; error: string | null } {
   const reachableTiles = getReachableTiles(world, character);
-  const actionType = jsonResponse.action.toLowerCase() as ValidActionType;
 
-  // Validate action type
-  if (!VALID_ACTION_TYPES.includes(actionType)) {
-    return {
-      action: null,
-      error: `Unknown action type: "${jsonResponse.action}"`,
-    };
-  }
-
-  switch (actionType) {
-    case "move":
-      if (jsonResponse.x !== null && jsonResponse.y !== null) {
-        return {
-          action: {
-            type: "move",
-            targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
-          },
-          error: null,
-        };
-      } else if (jsonResponse.target) {
-        const targetPos = findTargetPosition(
-          jsonResponse.target,
-          knowledge,
-          character
-        );
-        if (targetPos) {
-          const bestTile = findBestTileToward(
-            targetPos,
-            reachableTiles,
-            character.position
-          );
-          if (bestTile) {
-            return {
-              action: { type: "move", targetPosition: bestTile },
-              error: null,
-            };
-          } else {
-            return {
-              action: null,
-              error: `MOVE TO "${jsonResponse.target}" failed: no reachable tiles`,
-            };
-          }
-        } else {
-          return {
-            action: null,
-            error: `MOVE TO "${jsonResponse.target}" failed: target not found`,
-          };
-        }
-      } else {
-        return {
-          action: null,
-          error: "MOVE requires x,y coordinates OR a target name",
-        };
+  switch (jsonResponse.action) {
+    case "MOVE": {
+      if (jsonResponse.x === null || jsonResponse.y === null) {
+        return { action: null, error: "MOVE requires x and y coordinates" };
       }
+      return {
+        action: {
+          type: "move",
+          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+        },
+        error: null,
+      };
+    }
 
-    case "attack":
-      if (jsonResponse.target) {
-        const target = knowledge.visible.characters.find(
-          (c) =>
-            c.character.name.toLowerCase() ===
-              jsonResponse.target!.toLowerCase() ||
-            c.character.name
-              .toLowerCase()
-              .includes(jsonResponse.target!.toLowerCase())
-        );
-        if (target) {
-          return {
-            action: { type: "attack", targetCharacterId: target.character.id },
-            error: null,
-          };
-        } else {
-          return {
-            action: null,
-            error: `ATTACK target "${jsonResponse.target}" not visible`,
-          };
-        }
-      } else {
-        return { action: null, error: "ATTACK requires a target name" };
-      }
-
-    case "talk":
-      if (jsonResponse.target && jsonResponse.message) {
-        const target = knowledge.visible.characters.find(
-          (c) =>
-            c.character.name.toLowerCase() ===
-              jsonResponse.target!.toLowerCase() ||
-            c.character.name
-              .toLowerCase()
-              .includes(jsonResponse.target!.toLowerCase())
-        );
-        if (target) {
-          return {
-            action: {
-              type: "talk",
-              targetCharacterId: target.character.id,
-              message: jsonResponse.message,
-            },
-            error: null,
-          };
-        } else {
-          return {
-            action: null,
-            error: `TALK target "${jsonResponse.target}" not visible`,
-          };
-        }
-      } else {
-        return {
-          action: null,
-          error: "TALK requires a target name and message",
-        };
-      }
-
-    case "search":
-      if (jsonResponse.target) {
-        const container = knowledge.visible.items.find(
-          (i) =>
-            i.item.type === "container" &&
-            i.item.name
-              .toLowerCase()
-              .includes(jsonResponse.target!.toLowerCase())
-        );
-        if (container) {
-          return {
-            action: {
-              type: "search_container",
-              targetItemId: container.item.id,
-            },
-            error: null,
-          };
-        } else {
-          return {
-            action: {
-              type: "search_container",
-              targetItemName: jsonResponse.target,
-            },
-            error: null,
-          };
-        }
-      } else {
-        return { action: null, error: "SEARCH requires a container name" };
-      }
-
-    case "pickup":
-      if (
-        jsonResponse.x !== null &&
-        jsonResponse.y !== null &&
-        jsonResponse.target
-      ) {
-        return {
-          action: {
-            type: "pick_up",
-            targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
-            targetItemName: jsonResponse.target,
-          },
-          error: null,
-        };
-      } else if (!jsonResponse.target) {
-        return { action: null, error: "PICKUP requires item name (target)" };
-      } else {
-        return { action: null, error: "PICKUP requires coordinates (x, y)" };
-      }
-
-    case "drop":
-      if (jsonResponse.target) {
-        const item = knowledge.status.inventory.find((i) =>
-          i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
-        );
-        if (item) {
-          return {
-            action: { type: "drop", targetItemId: item.id },
-            error: null,
-          };
-        } else {
-          return {
-            action: { type: "drop", targetItemName: jsonResponse.target },
-            error: null,
-          };
-        }
-      } else {
-        return { action: null, error: "DROP requires an item name" };
-      }
-
-    case "equip":
-      if (jsonResponse.target) {
-        const item = knowledge.status.inventory.find((i) =>
-          i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
-        );
-        if (item) {
-          return {
-            action: { type: "equip", targetItemId: item.id },
-            error: null,
-          };
-        } else {
-          return {
-            action: { type: "equip", targetItemName: jsonResponse.target },
-            error: null,
-          };
-        }
-      } else {
-        return { action: null, error: "EQUIP requires an item name" };
-      }
-
-    case "place":
+    case "MOVE_TO": {
       if (!jsonResponse.target) {
-        return { action: null, error: "PLACE requires a trap name" };
-      } else if (jsonResponse.x === null || jsonResponse.y === null) {
-        return {
-          action: null,
-          error: "PLACE requires x,y coordinates for adjacent tile",
-        };
-      } else {
-        const trapsInInv = knowledge.status.inventory.filter(
-          (i) => i.type === "trap"
-        );
-        if (trapsInInv.length === 0) {
-          return {
-            action: null,
-            error: "PLACE failed: No traps in inventory!",
-          };
-        }
-        const item = trapsInInv.find((i) =>
-          i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
-        );
-        if (item) {
-          return {
-            action: {
-              type: "place",
-              targetItemId: item.id,
-              targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
-            },
-            error: null,
-          };
-        } else {
-          return {
-            action: null,
-            error: `PLACE failed: "${jsonResponse.target}" not in inventory`,
-          };
-        }
+        return { action: null, error: "MOVE_TO requires a target" };
       }
-
-    case "contract":
-      if (!jsonResponse.target) {
+      const targetPos = findTargetPosition(
+        jsonResponse.target,
+        knowledge,
+        character
+      );
+      if (!targetPos) {
         return {
           action: null,
-          error: "CONTRACT requires target character name",
+          error: `MOVE_TO "${jsonResponse.target}" failed: target not found`,
         };
+      }
+      const bestTile = findBestTileToward(
+        targetPos,
+        reachableTiles,
+        character.position
+      );
+      if (!bestTile) {
+        return {
+          action: null,
+          error: `MOVE_TO "${jsonResponse.target}" failed: no reachable tiles`,
+        };
+      }
+      return {
+        action: { type: "move", targetPosition: bestTile },
+        error: null,
+      };
+    }
+
+    case "ATTACK": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "ATTACK requires a target" };
+      }
+      const target = knowledge.visible.characters.find(
+        (c) =>
+          c.character.name.toLowerCase() ===
+            jsonResponse.target!.toLowerCase() ||
+          c.character.name
+            .toLowerCase()
+            .includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!target) {
+        return {
+          action: null,
+          error: `ATTACK target "${jsonResponse.target}" not visible`,
+        };
+      }
+      return {
+        action: { type: "attack", targetCharacterId: target.character.id },
+        error: null,
+      };
+    }
+
+    case "TALK": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "TALK requires a target" };
+      }
+      if (!jsonResponse.message) {
+        return { action: null, error: "TALK requires a message" };
+      }
+      const target = knowledge.visible.characters.find(
+        (c) =>
+          c.character.name.toLowerCase() ===
+            jsonResponse.target!.toLowerCase() ||
+          c.character.name
+            .toLowerCase()
+            .includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!target) {
+        return {
+          action: null,
+          error: `TALK target "${jsonResponse.target}" not visible`,
+        };
+      }
+      return {
+        action: {
+          type: "talk",
+          targetCharacterId: target.character.id,
+          message: jsonResponse.message,
+        },
+        error: null,
+      };
+    }
+
+    case "SEARCH": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "SEARCH requires a target" };
+      }
+      const container = knowledge.visible.items.find(
+        (i) =>
+          i.item.type === "container" &&
+          i.item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!container) {
+        return {
+          action: null,
+          error: `SEARCH failed: Container "${jsonResponse.target}" not found`,
+        };
+      }
+      return {
+        action: { type: "search_container", targetItemId: container.item.id },
+        error: null,
+      };
+    }
+
+    case "PICKUP": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "PICKUP requires a target" };
+      }
+      const visibleItem = knowledge.visible.items.find((i) =>
+        i.item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!visibleItem) {
+        return {
+          action: null,
+          error: `PICKUP failed: "${jsonResponse.target}" not found nearby`,
+        };
+      }
+      return {
+        action: {
+          type: "pick_up",
+          targetItemId: visibleItem.item.id,
+        },
+        error: null,
+      };
+    }
+
+    case "DROP": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "DROP requires a target" };
+      }
+      const item = knowledge.status.inventory.find((i) =>
+        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!item) {
+        return {
+          action: null,
+          error: `DROP failed: "${jsonResponse.target}" not in inventory`,
+        };
+      }
+      return { action: { type: "drop", targetItemId: item.id }, error: null };
+    }
+
+    case "EQUIP": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "EQUIP requires a target" };
+      }
+      const item = knowledge.status.inventory.find((i) =>
+        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!item) {
+        return {
+          action: null,
+          error: `EQUIP failed: "${jsonResponse.target}" not in inventory`,
+        };
+      }
+      return {
+        action: { type: "equip", targetItemId: item.id },
+        error: null,
+      };
+    }
+
+    case "PLACE": {
+      if (jsonResponse.x === null || jsonResponse.y === null) {
+        return { action: null, error: "PLACE requires x and y coordinates" };
+      }
+      if (!jsonResponse.target) {
+        return { action: null, error: "PLACE requires a target" };
+      }
+      const trapsInInv = knowledge.status.inventory.filter(
+        (i) => i.type === "trap"
+      );
+      if (trapsInInv.length === 0) {
+        return { action: null, error: "PLACE failed: No traps in inventory!" };
+      }
+      const item = trapsInInv.find((i) =>
+        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!item) {
+        return {
+          action: null,
+          error: `PLACE failed: "${jsonResponse.target}" not in inventory`,
+        };
+      }
+      return {
+        action: {
+          type: "place",
+          targetItemId: item.id,
+          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+        },
+        error: null,
+      };
+    }
+
+    case "CONTRACT": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "CONTRACT requires a target" };
       }
       if (!jsonResponse.terms) {
-        return {
-          action: null,
-          error: "CONTRACT requires terms field",
-        };
+        return { action: null, error: "CONTRACT requires terms" };
       }
-      if (!jsonResponse.expiry) {
-        return {
-          action: null,
-          error: "CONTRACT requires expiry field (1-20 turns)",
-        };
+      if (jsonResponse.expiry === null) {
+        return { action: null, error: "CONTRACT requires expiry" };
       }
-      const expiry = jsonResponse.expiry;
-      if (expiry < 1 || expiry > 5) {
+      if (jsonResponse.expiry < 1 || jsonResponse.expiry > 5) {
         return {
           action: null,
           error: "CONTRACT expiry must be between 1 and 5 turns",
         };
       }
-      const contractContents = jsonResponse.terms;
       const contractTarget = world.characters.find(
         (c) => c.name.toLowerCase() === jsonResponse.target!.toLowerCase()
       );
@@ -912,59 +789,32 @@ function parseJsonAction(
         action: {
           type: "issue_contract",
           targetCharacterId: contractTarget.id,
-          contractContents,
-          contractExpiry: expiry,
+          contractContents: jsonResponse.terms!,
+          contractExpiry: jsonResponse.expiry,
           message: jsonResponse.message || undefined,
         },
         error: null,
       };
+    }
 
-    case "sign":
-      // During contract negotiation, target is not required
-      return {
-        action: {
-          type: "sign_contract",
-          targetItemName: jsonResponse.target || undefined,
-          message: jsonResponse.message || undefined,
-        },
-        error: null,
-      };
-
-    case "decline":
-      return {
-        action: {
-          type: "decline_contract",
-          message: jsonResponse.message || undefined,
-        },
-        error: null,
-      };
-
-    case "unlock":
-      if (jsonResponse.x === null || jsonResponse.y === null) {
-        return {
-          action: null,
-          error: "UNLOCK requires x,y coordinates of the door",
-        };
+    case "UNLOCK": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "UNLOCK requires a door name" };
       }
       return {
         action: {
           type: "unlock",
-          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
+          targetDoorName: jsonResponse.target,
         },
         error: null,
       };
+    }
 
-    case "wait":
-      return {
-        action: {
-          type: "wait",
-          message: jsonResponse.message || undefined,
-        },
-        error: null,
-      };
+    case "WAIT":
+      return { action: { type: "wait" }, error: null };
 
     default:
-      return { action: null, error: `Unknown action: ${actionType}` };
+      return { action: null, error: `Unknown action: ${jsonResponse.action}` };
   }
 }
 
@@ -1082,8 +932,8 @@ export async function getAgentDecision(
   }
   let unlockAction: string;
   if (adjacentLockedDoors.length > 0 && hasKey) {
-    unlockAction = `- UNLOCK: Unlock adjacent door. Available: ${adjacentLockedDoors
-      .map((d) => `(${d.x},${d.y})`)
+    unlockAction = `- UNLOCK: Unlock adjacent door. Requires target (door name). Available: ${adjacentLockedDoors
+      .map((d) => `Blue Door (${d.x},${d.y})`)
       .join(", ")}`;
   } else if (adjacentLockedDoors.length > 0) {
     unlockAction = `- [UNAVAILABLE] UNLOCK - Adjacent door at ${adjacentLockedDoors

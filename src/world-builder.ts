@@ -31,7 +31,6 @@ function createCharacter(
     personalityPrompt,
     movementRange: options.movementRange ?? 4,
     viewDistance: options.viewDistance ?? 20,
-    memories: [],
     mapMemory: new Map(),
     debuffTurnsRemaining: 0,
     ...options,
@@ -215,6 +214,7 @@ export function createTownMap(): World {
     characters,
     turn: 1,
     activeContracts: [],
+    events: [],
   };
 }
 
@@ -338,6 +338,7 @@ Think carefully about which strategy is best to ensure your survival.`;
     characters,
     turn: 1,
     activeContracts: [],
+    events: [],
   };
 }
 
@@ -447,5 +448,6 @@ export function createCageMap(): World {
     characters,
     turn: 1,
     activeContracts: [],
+    events: [],
   };
 }

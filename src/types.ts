@@ -84,42 +84,10 @@ export type Character = {
   personalityPrompt: string;
   movementRange: number;
   viewDistance: number;
-  memories: Memory[];
   mapMemory: Map<string, TileMemory>;
   debuffTurnsRemaining: number;
   trapped?: boolean;
   attackDebuff?: number;
-};
-
-export type MemoryType =
-  | "saw_item"
-  | "saw_character"
-  | "saw_corpse"
-  | "saw_move"
-  | "searched_container"
-  | "picked_up_item"
-  | "attacked"
-  | "was_attacked"
-  | "witnessed_attack"
-  | "character_died"
-  | "heard_about"
-  | "talked_to"
-  | "placed_trap"
-  | "thought"
-  | "issued_contract"
-  | "signed_contract"
-  | "contract_judged";
-
-export type Memory = {
-  id: string;
-  turn: number;
-  order: number; // Chronological order within the turn
-  type: MemoryType;
-  description: string;
-  location?: Position;
-  characterId?: string;
-  itemId?: string;
-  source: "witnessed" | string;
 };
 
 export type Room = {
@@ -136,35 +104,103 @@ export type World = {
   characters: Character[];
   turn: number;
   activeContracts: BloodContract[];
+  events: GameEvent[];
 };
 
-export type ActionType =
-  | "move"
-  | "look_around"
-  | "search_container"
-  | "pick_up"
-  | "drop"
-  | "equip"
-  | "unequip"
-  | "attack"
-  | "talk"
-  | "place"
-  | "issue_contract"
-  | "sign_contract"
-  | "decline_contract"
-  | "unlock"
-  | "wait";
+export type MoveAction = {
+  type: "move";
+  targetPosition: Position;
+};
 
-export type Action = {
-  type: ActionType;
-  targetPosition?: Position;
-  targetCharacterId?: string;
-  targetItemId?: string;
-  targetItemName?: string;
+export type LookAroundAction = {
+  type: "look_around";
+};
+
+export type SearchContainerAction = {
+  type: "search_container";
+  targetItemId: string;
+};
+
+export type PickUpAction = {
+  type: "pick_up";
+  targetItemId: string;
+};
+
+export type DropAction = {
+  type: "drop";
+  targetItemId: string;
+};
+
+export type EquipAction = {
+  type: "equip";
+  targetItemId: string;
+};
+
+export type UnequipAction = {
+  type: "unequip";
+  targetItemId: string;
+};
+
+export type AttackAction = {
+  type: "attack";
+  targetCharacterId: string;
+};
+
+export type TalkAction = {
+  type: "talk";
+  targetCharacterId: string;
+  message: string;
+};
+
+export type PlaceAction = {
+  type: "place";
+  targetPosition: Position;
+  targetItemId: string;
+};
+
+export type IssueContractAction = {
+  type: "issue_contract";
+  targetCharacterId: string;
+  contractContents: string;
+  contractExpiry: number;
   message?: string;
-  contractContents?: string;
-  contractExpiry?: number;
 };
+
+export type SignContractAction = {
+  type: "sign_contract";
+};
+
+export type DeclineContractAction = {
+  type: "decline_contract";
+};
+
+export type UnlockAction = {
+  type: "unlock";
+  targetDoorName: string;
+};
+
+export type WaitAction = {
+  type: "wait";
+};
+
+export type Action =
+  | MoveAction
+  | LookAroundAction
+  | SearchContainerAction
+  | PickUpAction
+  | DropAction
+  | EquipAction
+  | UnequipAction
+  | AttackAction
+  | TalkAction
+  | PlaceAction
+  | IssueContractAction
+  | SignContractAction
+  | DeclineContractAction
+  | UnlockAction
+  | WaitAction;
+
+export type ActionType = Action["type"];
 
 export type ActionResult = {
   success: boolean;
@@ -181,6 +217,7 @@ export type ActionResult = {
 };
 
 export type GameEventType =
+  | "think"
   | "move"
   | "search"
   | "pickup"
@@ -200,6 +237,7 @@ export type GameEventType =
 
 export type GameEvent = {
   turn: number;
+  order?: number;
   type: GameEventType;
   actorId: string;
   targetId?: string;
@@ -229,6 +267,6 @@ export type CharacterKnowledge = {
     equippedClothing?: Item;
   };
   visible: VisibleState;
-  memories: Memory[];
+  witnessedEvents: GameEvent[];
   possibleActions: Action[];
 };

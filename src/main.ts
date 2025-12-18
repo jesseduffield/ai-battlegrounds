@@ -13,7 +13,6 @@ import {
   executeAction,
   getReachableTiles,
   getVisibleTiles,
-  addMemory,
   distance,
   MAX_TALK_DISTANCE,
   getWitnessIds,
@@ -59,8 +58,14 @@ let autoPlayInterval: number | null = null;
 let fastMode = false;
 let playerControlledCharacter: string | null = null; // Character name or null for AI-only
 let awaitingPlayerAction = false;
-let allEvents: GameEvent[] = [];
+let eventOrderCounter = 0;
 let allAgentDecisions: AgentDecisionLog[] = [];
+
+function pushEvent(event: Omit<GameEvent, "order">): void {
+  const fullEvent: GameEvent = { ...event, order: eventOrderCounter++ };
+  world.events.push(fullEvent);
+  addLogEntry(fullEvent);
+}
 let chronologicalLog: LogEntry[] = [];
 let snapshots: WorldSnapshot[] = [];
 let viewingSnapshot: WorldSnapshot | null = null;
@@ -95,7 +100,7 @@ function saveSnapshot(): void {
     turn: world.turn,
     characterIndex: currentCharacterIndex,
     world: serializeWorld(world),
-    eventIndex: allEvents.length,
+    eventIndex: world.events.length,
   });
 }
 
@@ -123,7 +128,7 @@ async function processExpiredContracts(): Promise<void> {
     }
 
     // Judge the contract
-    const verdict = await judgeContract(contract, allEvents, world);
+    const verdict = await judgeContract(contract, world.events, world);
 
     // Log the judgment
     const judgmentEvent: GameEvent = {
@@ -136,8 +141,7 @@ async function processExpiredContracts(): Promise<void> {
       judgeResponse: verdict.rawResponse,
       witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
     };
-    allEvents.push(judgmentEvent);
-    addLogEntry(judgmentEvent);
+    pushEvent(judgmentEvent);
 
     // Kill violators
     for (const violatorName of verdict.violators) {
@@ -155,8 +159,7 @@ async function processExpiredContracts(): Promise<void> {
           description: `💀 ${violator.name} is struck dead by divine judgment for violating the Blood Contract!`,
           witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
         };
-        allEvents.push(deathEvent);
-        addLogEntry(deathEvent);
+        pushEvent(deathEvent);
 
         // Drop their items
         const tile = world.tiles[violator.position.y][violator.position.x];
@@ -340,12 +343,12 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
 
   const entry = document.createElement("div");
   entry.className = "log-entry";
-  entry.dataset.eventIndex = String(allEvents.length - 1);
+  entry.dataset.eventIndex = String(world.events.length - 1);
   entry.dataset.snapshotIndex = String(snapshotIdx ?? snapshots.length - 1);
 
   let extraHtml = "";
   if (event.type === "contract_judged" && event.judgePrompt) {
-    const eventIdx = allEvents.length - 1;
+    const eventIdx = world.events.length - 1;
     extraHtml = `<div style="margin-top: 4px;"><a href="#" class="show-judge-prompt" data-event-idx="${eventIdx}" style="font-size: 11px; color: var(--accent-blue);">📜 Show Judge Prompt</a></div>`;
   }
 
@@ -368,7 +371,7 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
     });
   }
 
-  eventElements.set(allEvents.length - 1, entry);
+  eventElements.set(world.events.length - 1, entry);
   eventLogEl.insertBefore(entry, eventLogEl.firstChild);
 
   while (eventLogEl.children.length > 100) {
@@ -383,6 +386,16 @@ function addReasoningEntry(
   fullResponse?: string,
   errors?: string[]
 ): void {
+  if (reasoning) {
+    pushEvent({
+      turn: world.turn,
+      type: "think",
+      actorId: character.id,
+      description: `${character.name} thought: "${reasoning}"`,
+      witnessIds: [character.id],
+    });
+  }
+
   if (fullPrompt && fullResponse) {
     const decision: AgentDecisionLog = {
       turn: world.turn,
@@ -619,10 +632,13 @@ function showInspector(w: World, pos: Position): void {
       html += `</div>`;
     }
 
-    if (character.memories.length > 0) {
+    const witnessedEvents = world.events.filter((e) =>
+      e.witnessIds.includes(character.id)
+    );
+    if (witnessedEvents.length > 0) {
       html += `<div style="margin-top: 0.5rem; font-weight: 600;">Memories:</div>`;
-      for (const mem of character.memories) {
-        html += `<div class="memory-item"><span class="memory-turn">[Turn ${mem.turn}]</span> ${mem.description}</div>`;
+      for (const evt of witnessedEvents) {
+        html += `<div class="memory-item"><span class="memory-turn">[Turn ${evt.turn}]</span> ${evt.description}</div>`;
       }
     }
 
@@ -677,7 +693,7 @@ function hideContractsPanel(): void {
 }
 
 function showJudgePrompt(eventIdx: number): void {
-  const event = allEvents[eventIdx];
+  const event = world.events[eventIdx];
   if (!event || !event.judgePrompt) return;
 
   const panel = document.getElementById("inspector-panel");
@@ -859,8 +875,7 @@ async function handleConversation(
     }
     hideThoughtBubble();
 
-    // Log the response
-    const evt: GameEvent = {
+    pushEvent({
       turn: world.turn,
       type: "talk",
       actorId: speaker.id,
@@ -868,24 +883,6 @@ async function handleConversation(
       message: responseMessage,
       description: `${speaker.name} responds to ${listener.name}: "${responseMessage}"`,
       witnessIds: [speaker.id, listener.id],
-    };
-    allEvents.push(evt);
-    addLogEntry(evt);
-
-    // Add memories
-    addMemory(speaker, {
-      turn: world.turn,
-      type: "talked_to",
-      description: `Said to ${listener.name}: "${responseMessage}"`,
-      characterId: listener.id,
-      source: "witnessed",
-    });
-    addMemory(listener, {
-      turn: world.turn,
-      type: "talked_to",
-      description: `${speaker.name} said: "${responseMessage}"`,
-      characterId: speaker.id,
-      source: "witnessed",
     });
 
     // Swap roles
@@ -1067,14 +1064,13 @@ async function processTurn(): Promise<void> {
           description: `${current.name} has broken free from the trap!`,
           witnessIds: getWitnessIds(world, current.position),
         };
-        allEvents.push(freeEvent);
-        addLogEntry(freeEvent);
+        pushEvent(freeEvent);
       }
     }
 
     const lookResult = executeAction(world, current, { type: "look_around" });
     for (const event of lookResult.events) {
-      allEvents.push(event);
+      pushEvent(event);
     }
 
     let equippedThisTurn = false;
@@ -1101,14 +1097,6 @@ async function processTurn(): Promise<void> {
 
       // Show what the character is thinking and pause (only if reasoning provided)
       if (reasoning) {
-        // Store thought as memory
-        addMemory(current, {
-          turn: world.turn,
-          type: "thought",
-          description: `Thought: "${reasoning}"`,
-          source: "witnessed",
-        });
-
         showThoughtBubble(current, reasoning);
         if (!fastMode) {
           await delay(2500); // Let player read the thought
@@ -1143,8 +1131,7 @@ async function processTurn(): Promise<void> {
           description: `${current.name}: turn ended due to repeated errors`,
           witnessIds: getWitnessIds(world, current.position),
         };
-        allEvents.push(evt);
-        addLogEntry(evt);
+        pushEvent(evt);
         break;
       }
 
@@ -1163,8 +1150,7 @@ async function processTurn(): Promise<void> {
           description: `${current.name}: move (REJECTED - already moved this turn)`,
           witnessIds: getWitnessIds(world, current.position),
         };
-        allEvents.push(evt);
-        addLogEntry(evt);
+        pushEvent(evt);
         continue;
       }
 
@@ -1180,8 +1166,7 @@ async function processTurn(): Promise<void> {
           description: `${current.name} cannot attack after equipping this turn`,
           witnessIds: getWitnessIds(world, current.position),
         };
-        allEvents.push(evt);
-        addLogEntry(evt);
+        pushEvent(evt);
         turnEnded = true;
         continue;
       }
@@ -1230,8 +1215,7 @@ async function processTurn(): Promise<void> {
 
       // Log events
       for (const event of result.events) {
-        allEvents.push(event);
-        addLogEntry(event);
+        pushEvent(event);
       }
 
       if (result.events.length === 0 && action.type !== "look_around") {
@@ -1244,8 +1228,7 @@ async function processTurn(): Promise<void> {
           }`,
           witnessIds: getWitnessIds(world, current.position),
         };
-        allEvents.push(evt);
-        addLogEntry(evt);
+        pushEvent(evt);
       }
 
       // Track actions for conversation history
@@ -1379,24 +1362,8 @@ async function processTurn(): Promise<void> {
               description: `🩸 ${target.name} signed the Blood Contract with ${current.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
               witnessIds: [target.id, current.id],
             };
-            allEvents.push(signedEvt);
-            addLogEntry(signedEvt);
+            pushEvent(signedEvt);
 
-            // Add memories
-            addMemory(current, {
-              turn: world.turn,
-              type: "signed_contract",
-              description: `${target.name} signed the Blood Contract: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
-              characterId: target.id,
-              source: "witnessed",
-            });
-            addMemory(target, {
-              turn: world.turn,
-              type: "signed_contract",
-              description: `Signed Blood Contract with ${current.name}: "${action.contractContents}" (expires turn ${contract.expiryTurn})`,
-              characterId: current.id,
-              source: "witnessed",
-            });
             // Add to turn history so follow-up actions know the result
             turnHistory.push({
               response: `CONTRACT ${target.name}: "${action.contractContents}"`,
@@ -1414,8 +1381,7 @@ async function processTurn(): Promise<void> {
               }`,
               witnessIds: [target.id, current.id],
             };
-            allEvents.push(declineEvt);
-            addLogEntry(declineEvt);
+            pushEvent(declineEvt);
 
             // Add to turn history so follow-up actions know the result
             turnHistory.push({
@@ -1465,8 +1431,7 @@ async function processTurn(): Promise<void> {
           : "💀 GAME OVER! Everyone is dead!",
         witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
       };
-      allEvents.push(gameOverEvent);
-      addLogEntry(gameOverEvent);
+      pushEvent(gameOverEvent);
 
       if (autoPlayInterval) {
         clearInterval(autoPlayInterval);
@@ -1778,8 +1743,7 @@ async function executePlayerActionFromClick(
       if (item) {
         action = {
           type: "pick_up",
-          targetPosition: { x, y },
-          targetItemName: item.name,
+          targetItemId: item.id,
         };
       } else {
         // Check for items inside searched containers
@@ -1790,8 +1754,7 @@ async function executePlayerActionFromClick(
             item = container.contents[0];
             action = {
               type: "pick_up",
-              targetPosition: { x, y },
-              targetItemName: item.name,
+              targetItemId: item.id,
             };
             break;
           }
@@ -1842,7 +1805,7 @@ async function executePlayerAction(
         actualAction = { type: "drop", targetItemId: dropItem.id };
         break;
       case "sign":
-        actualAction = { type: "sign_contract", targetItemName: target };
+        actualAction = { type: "sign_contract" };
         break;
       case "wait":
         actualAction = { type: "wait" };
@@ -1859,8 +1822,7 @@ async function executePlayerAction(
 
   // Add events to log
   for (const evt of result.events) {
-    allEvents.push(evt);
-    addLogEntry(evt);
+    pushEvent(evt);
   }
 
   // If action failed, show error and let player retry
@@ -1930,8 +1892,7 @@ async function executePlayerTalk(): Promise<void> {
 
   const result = executeAction(world, current, action);
   for (const evt of result.events) {
-    allEvents.push(evt);
-    addLogEntry(evt);
+    pushEvent(evt);
   }
 
   if (result.success) {
@@ -2044,8 +2005,7 @@ async function executePlayerContract(): Promise<void> {
 
   const result = executeAction(world, current, action);
   for (const evt of result.events) {
-    allEvents.push(evt);
-    addLogEntry(evt);
+    pushEvent(evt);
   }
 
   if (result.success) {
@@ -2099,8 +2059,7 @@ async function executePlayerContract(): Promise<void> {
         description: `🩸 ${targetChar.name} signed the Blood Contract with ${current.name}: "${terms}" (expires turn ${contract.expiryTurn})`,
         witnessIds: [targetChar.id, current.id],
       };
-      allEvents.push(signedEvt);
-      addLogEntry(signedEvt);
+      pushEvent(signedEvt);
     } else {
       const declineEvt: GameEvent = {
         turn: world.turn,
@@ -2113,8 +2072,7 @@ async function executePlayerContract(): Promise<void> {
         }`,
         witnessIds: [targetChar.id, current.id],
       };
-      allEvents.push(declineEvt);
-      addLogEntry(declineEvt);
+      pushEvent(declineEvt);
     }
 
     // Contract no longer ends turn - show actions again
@@ -2507,8 +2465,7 @@ function init(): void {
     description: "",
     witnessIds: [],
   };
-  allEvents.push(initialEvent);
-  addLogEntry(initialEvent);
+  pushEvent(initialEvent);
 
   for (const character of world.characters) {
     const evt: GameEvent = {
@@ -2518,8 +2475,7 @@ function init(): void {
       description: `${character.name} is at (${character.position.x}, ${character.position.y})`,
       witnessIds: getWitnessIds(world, character.position),
     };
-    allEvents.push(evt);
-    addLogEntry(evt);
+    pushEvent(evt);
   }
 }
 

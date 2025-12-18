@@ -7,8 +7,8 @@ import type {
   GameEvent,
   VisibleState,
   Tile,
+  TileType,
   Item,
-  Memory,
   CharacterKnowledge,
 } from "./types";
 
@@ -16,11 +16,6 @@ export const MAX_TALK_DISTANCE = 6;
 
 export function createId(): string {
   return Math.random().toString(36).substring(2, 11);
-}
-
-let memoryOrderCounter = 0;
-export function getNextMemoryOrder(): number {
-  return memoryOrderCounter++;
 }
 
 export function distance(a: Position, b: Position): number {
@@ -395,17 +390,6 @@ export function calculateDamage(attacker: Character): {
   return { damage: 0, roll, isDebuffed };
 }
 
-export function addMemory(
-  character: Character,
-  memory: Omit<Memory, "id" | "order">
-): void {
-  character.memories.push({
-    ...memory,
-    id: createId(),
-    order: getNextMemoryOrder(),
-  });
-}
-
 export function executeAction(
   world: World,
   character: Character,
@@ -419,14 +403,6 @@ export function executeAction(
         return {
           success: false,
           message: `${character.name} is trapped and cannot move! (${character.debuffTurnsRemaining} turns remaining)`,
-          events,
-        };
-      }
-
-      if (!action.targetPosition) {
-        return {
-          success: false,
-          message: "No target position specified",
           events,
         };
       }
@@ -450,7 +426,7 @@ export function executeAction(
         (c) =>
           c.alive &&
           c.id !== character.id &&
-          positionsEqual(c.position, action.targetPosition!)
+          positionsEqual(c.position, action.targetPosition)
       );
       if (occupant) {
         return {
@@ -528,19 +504,6 @@ export function executeAction(
       for (const witness of world.characters) {
         if (witness.id === character.id) continue;
         if (!witness.alive) continue;
-        const canSeeEnd =
-          lineOfSight(world, witness.position, finalPosition) &&
-          distance(witness.position, finalPosition) <= witness.viewDistance;
-        if (canSeeEnd) {
-          addMemory(witness, {
-            turn: world.turn,
-            type: "saw_move",
-            description: `Saw ${character.name} move to (${finalPosition.x}, ${finalPosition.y})`,
-            location: finalPosition,
-            characterId: character.id,
-            source: "witnessed",
-          });
-        }
       }
 
       return {
@@ -576,39 +539,6 @@ export function executeAction(
         });
       }
 
-      for (const { character: other, position } of visible.characters) {
-        if (other.alive) {
-          addMemory(character, {
-            turn: world.turn,
-            type: "saw_character",
-            description: `Saw ${other.name} at (${position.x}, ${position.y})`,
-            location: position,
-            characterId: other.id,
-            source: "witnessed",
-          });
-        } else {
-          addMemory(character, {
-            turn: world.turn,
-            type: "saw_corpse",
-            description: `Saw ${other.name}'s corpse at (${position.x}, ${position.y})`,
-            location: position,
-            characterId: other.id,
-            source: "witnessed",
-          });
-        }
-      }
-
-      for (const { item, position } of visible.items) {
-        addMemory(character, {
-          turn: world.turn,
-          type: "saw_item",
-          description: `Saw ${item.name} at (${position.x}, ${position.y})`,
-          location: position,
-          itemId: item.id,
-          source: "witnessed",
-        });
-      }
-
       return {
         success: true,
         message: `Looked around. Saw ${visible.characters.length} characters and ${visible.items.length} items.`,
@@ -617,10 +547,6 @@ export function executeAction(
     }
 
     case "search_container": {
-      if (!action.targetItemId && !action.targetItemName) {
-        return { success: false, message: "No container specified", events };
-      }
-
       const adjacentPositions = [
         character.position,
         { x: character.position.x - 1, y: character.position.y },
@@ -632,18 +558,6 @@ export function executeAction(
       let container: Item | undefined;
       let containerPosition: Position | undefined;
 
-      // Helper to match container by ID or name
-      const matchesContainer = (item: Item): boolean => {
-        if (item.type !== "container") return false;
-        if (action.targetItemId && item.id === action.targetItemId) return true;
-        if (action.targetItemName) {
-          return item.name
-            .toLowerCase()
-            .includes(action.targetItemName.toLowerCase());
-        }
-        return false;
-      };
-
       for (const pos of adjacentPositions) {
         if (
           pos.x < 0 ||
@@ -654,7 +568,9 @@ export function executeAction(
           continue;
         }
         const tile = world.tiles[pos.y][pos.x];
-        const found = tile.items.find(matchesContainer);
+        const found = tile.items.find(
+          (item) => item.type === "container" && item.id === action.targetItemId
+        );
         if (found) {
           container = found;
           containerPosition = pos;
@@ -663,29 +579,15 @@ export function executeAction(
       }
 
       if (!container || !containerPosition) {
-        const targetName = action.targetItemName || "container";
         return {
           success: false,
-          message: `${targetName} not adjacent - must be within 1 tile to search`,
+          message: "Container not adjacent - must be within 1 tile to search",
           events,
         };
       }
 
       container.searched = true;
       const contents = container.contents ?? [];
-
-      addMemory(character, {
-        turn: world.turn,
-        type: "searched_container",
-        description: `Searched ${container.name}. Found: ${
-          contents.length > 0
-            ? contents.map((i) => i.name).join(", ")
-            : "nothing"
-        }`,
-        location: containerPosition,
-        itemId: container.id,
-        source: "witnessed",
-      });
 
       events.push({
         turn: world.turn,
@@ -705,113 +607,64 @@ export function executeAction(
     }
 
     case "pick_up": {
-      // Require both coordinates and item name
-      if (!action.targetPosition) {
-        return {
-          success: false,
-          message: "PICKUP requires coordinates (x, y)",
-          events,
-        };
-      }
-      if (!action.targetItemId && !action.targetItemName) {
-        return { success: false, message: "PICKUP requires item name", events };
-      }
-
-      const pos = action.targetPosition;
-
-      // Must be adjacent or on same tile
-      const dist =
-        Math.abs(pos.x - character.position.x) +
-        Math.abs(pos.y - character.position.y);
-      if (dist > 1) {
-        return {
-          success: false,
-          message: "Too far to pick up - must be adjacent",
-          events,
-        };
-      }
-
-      if (
-        pos.x < 0 ||
-        pos.x >= world.width ||
-        pos.y < 0 ||
-        pos.y >= world.height
-      ) {
-        return { success: false, message: "Invalid position", events };
-      }
-
-      const tile = world.tiles[pos.y][pos.x];
-
-      // Helper to match item by ID or name
-      const matchesItem = (i: Item) => {
-        if (action.targetItemId) return i.id === action.targetItemId;
-        if (action.targetItemName) {
-          return i.name
-            .toLowerCase()
-            .includes(action.targetItemName.toLowerCase());
-        }
-        return false;
-      };
+      // Search current tile and adjacent tiles for the item
+      const adjacentPositions = [
+        character.position,
+        { x: character.position.x - 1, y: character.position.y },
+        { x: character.position.x + 1, y: character.position.y },
+        { x: character.position.x, y: character.position.y - 1 },
+        { x: character.position.x, y: character.position.y + 1 },
+      ];
 
       let item: Item | undefined;
-      let fromContainer: Item | undefined;
+      let foundPosition: Position | undefined;
 
-      // Check items on tile
-      const tileItemIndex = tile.items.findIndex(matchesItem);
-      if (tileItemIndex >= 0) {
-        item = tile.items[tileItemIndex];
-        tile.items.splice(tileItemIndex, 1);
-      }
+      for (const pos of adjacentPositions) {
+        if (
+          pos.x < 0 ||
+          pos.x >= world.width ||
+          pos.y < 0 ||
+          pos.y >= world.height
+        ) {
+          continue;
+        }
 
-      // Check inside searched containers on tile
-      if (!item) {
+        const tile = world.tiles[pos.y][pos.x];
+
+        // Check items on tile
+        const tileItemIndex = tile.items.findIndex(
+          (i) => i.id === action.targetItemId
+        );
+        if (tileItemIndex >= 0) {
+          item = tile.items[tileItemIndex];
+          tile.items.splice(tileItemIndex, 1);
+          foundPosition = pos;
+          break;
+        }
+
+        // Check inside searched containers on tile
         for (const container of tile.items.filter(
           (i) => i.type === "container" && i.searched
         )) {
           const containerItemIndex = (container.contents ?? []).findIndex(
-            matchesItem
+            (i) => i.id === action.targetItemId
           );
           if (containerItemIndex >= 0) {
             item = container.contents![containerItemIndex];
             container.contents!.splice(containerItemIndex, 1);
-            fromContainer = container;
+            foundPosition = pos;
             break;
           }
         }
+
+        if (item) break;
       }
 
-      if (!item) {
-        return { success: false, message: "Item not found", events };
+      if (!item || !foundPosition) {
+        return { success: false, message: "Item not found nearby", events };
       }
 
       character.inventory.push(item);
-
-      addMemory(character, {
-        turn: world.turn,
-        type: "picked_up_item",
-        description: `Picked up ${item.name}${
-          fromContainer ? ` from ${fromContainer.name}` : ""
-        }`,
-        location: character.position,
-        itemId: item.id,
-        source: "witnessed",
-      });
-
-      // Add memories for witnesses who see this pickup
-      for (const other of world.characters) {
-        if (other.id === character.id || !other.alive) continue;
-        if (lineOfSight(world, other.position, character.position)) {
-          addMemory(other, {
-            turn: world.turn,
-            type: "picked_up_item",
-            description: `Saw ${character.name} pick up ${item.name}${
-              fromContainer ? ` from ${fromContainer.name}` : ""
-            }`,
-            characterId: character.id,
-            source: "witnessed",
-          });
-        }
-      }
 
       events.push({
         turn: world.turn,
@@ -836,26 +689,13 @@ export function executeAction(
     }
 
     case "drop": {
-      if (!action.targetItemId && !action.targetItemName) {
-        return { success: false, message: "No item specified", events };
-      }
-
-      let itemIndex = -1;
-      if (action.targetItemId) {
-        itemIndex = character.inventory.findIndex(
-          (i) => i.id === action.targetItemId
-        );
-      } else if (action.targetItemName) {
-        itemIndex = character.inventory.findIndex((i) =>
-          i.name.toLowerCase().includes(action.targetItemName!.toLowerCase())
-        );
-      }
+      const itemIndex = character.inventory.findIndex(
+        (i) => i.id === action.targetItemId
+      );
       if (itemIndex < 0) {
         return {
           success: false,
-          message: `"${
-            action.targetItemName || action.targetItemId
-          }" not in inventory`,
+          message: "Item not in inventory",
           events,
         };
       }
@@ -887,21 +727,9 @@ export function executeAction(
     }
 
     case "equip": {
-      if (!action.targetItemId && !action.targetItemName) {
-        return { success: false, message: "No item specified", events };
-      }
-
-      let item = action.targetItemId
-        ? character.inventory.find((i) => i.id === action.targetItemId)
-        : undefined;
-
-      if (!item && action.targetItemName) {
-        const nameLower = action.targetItemName.toLowerCase();
-        item = character.inventory.find((i) =>
-          i.name.toLowerCase().includes(nameLower)
-        );
-      }
-
+      const item = character.inventory.find(
+        (i) => i.id === action.targetItemId
+      );
       if (!item) {
         return { success: false, message: "Item not in inventory", events };
       }
@@ -931,10 +759,6 @@ export function executeAction(
     }
 
     case "attack": {
-      if (!action.targetCharacterId) {
-        return { success: false, message: "No target specified", events };
-      }
-
       const target = world.characters.find(
         (c) => c.id === action.targetCharacterId
       );
@@ -965,22 +789,6 @@ export function executeAction(
               : `${character.name} missed ${target.name} with ${weaponName} (rolled ${roll})`,
           witnessIds: getWitnessIds(world, target.position),
         });
-
-        addMemory(character, {
-          turn: world.turn,
-          type: "attacked",
-          description: `Attacked ${target.name} with ${weaponName} but missed`,
-          characterId: target.id,
-          source: "witnessed",
-        });
-
-        addMemory(target, {
-          turn: world.turn,
-          type: "was_attacked",
-          description: `${character.name} attacked me with ${weaponName} but missed`,
-          characterId: character.id,
-          source: "witnessed",
-        });
       } else {
         target.hp -= damage;
         const isCrit = roll === 20;
@@ -995,26 +803,6 @@ export function executeAction(
             ? `${character.name} CRITICAL HIT ${target.name} with ${weaponName} for ${damage} damage!`
             : `${character.name} hit ${target.name} with ${weaponName} for ${damage} damage`,
           witnessIds: getWitnessIds(world, target.position),
-        });
-
-        addMemory(character, {
-          turn: world.turn,
-          type: "attacked",
-          description: `Attacked ${
-            target.name
-          } with ${weaponName}, dealt ${damage} damage${
-            isCrit ? " (critical hit!)" : ""
-          }`,
-          characterId: target.id,
-          source: "witnessed",
-        });
-
-        addMemory(target, {
-          turn: world.turn,
-          type: "was_attacked",
-          description: `${character.name} hit me with ${weaponName} for ${damage} damage`,
-          characterId: character.id,
-          source: "witnessed",
         });
 
         if (target.hp <= 0) {
@@ -1049,75 +837,6 @@ export function executeAction(
             description: `${target.name} has been killed by ${character.name}!`,
             witnessIds: getWitnessIds(world, target.position),
           });
-
-          addMemory(character, {
-            turn: world.turn,
-            type: "character_died",
-            description: `Killed ${target.name}`,
-            characterId: target.id,
-            location: target.position,
-            source: "witnessed",
-          });
-
-          // Notify witnesses about the kill and dropped items
-          for (const witness of world.characters) {
-            if (witness.id === character.id || witness.id === target.id)
-              continue;
-            if (!witness.alive) continue;
-            if (
-              lineOfSight(world, witness.position, target.position) &&
-              distance(witness.position, target.position) <=
-                witness.viewDistance
-            ) {
-              addMemory(witness, {
-                turn: world.turn,
-                type: "witnessed_attack",
-                description: `Witnessed ${character.name} kill ${target.name}`,
-                characterId: target.id,
-                location: target.position,
-                source: "witnessed",
-              });
-              // Also remember dropped items
-              for (const item of tile.items) {
-                addMemory(witness, {
-                  turn: world.turn,
-                  type: "saw_item",
-                  description: `${target.name} dropped ${item.name} at (${target.position.x}, ${target.position.y})`,
-                  location: target.position,
-                  source: "witnessed",
-                });
-              }
-            }
-          }
-
-          // The killer also knows about dropped items
-          for (const item of tile.items) {
-            addMemory(character, {
-              turn: world.turn,
-              type: "saw_item",
-              description: `${target.name} dropped ${item.name} at (${target.position.x}, ${target.position.y})`,
-              location: target.position,
-              source: "witnessed",
-            });
-          }
-        }
-      }
-
-      for (const witness of world.characters) {
-        if (witness.id === character.id || witness.id === target.id) continue;
-        if (!witness.alive) continue;
-        if (
-          lineOfSight(world, witness.position, character.position) &&
-          distance(witness.position, character.position) <= witness.viewDistance
-        ) {
-          addMemory(witness, {
-            turn: world.turn,
-            type: "witnessed_attack",
-            description: `Witnessed ${character.name} attack ${target.name}`,
-            characterId: character.id,
-            location: character.position,
-            source: "witnessed",
-          });
         }
       }
 
@@ -1135,14 +854,6 @@ export function executeAction(
     }
 
     case "talk": {
-      if (!action.targetCharacterId || !action.message) {
-        return {
-          success: false,
-          message: "No target or message specified",
-          events,
-        };
-      }
-
       const target = world.characters.find(
         (c) => c.id === action.targetCharacterId
       );
@@ -1162,29 +873,15 @@ export function executeAction(
         };
       }
 
-      addMemory(target, {
-        turn: world.turn,
-        type: "heard_about",
-        description: `${character.name} told me: "${action.message}"`,
-        characterId: character.id,
-        source: character.id,
-      });
-
-      addMemory(character, {
-        turn: world.turn,
-        type: "talked_to",
-        description: `Told ${target.name}: "${action.message}"`,
-        characterId: target.id,
-        source: "witnessed",
-      });
-
       events.push({
         turn: world.turn,
         type: "talk",
         actorId: character.id,
         targetId: target.id,
         message: action.message,
-        description: `${character.name} to ${target.name}: "${action.message}"`,
+        description: `${character.name} to ${
+          target.name
+        }: "${action.message.replace(/\n/g, " ")}"`,
         witnessIds: [character.id, target.id],
       });
 
@@ -1192,18 +889,6 @@ export function executeAction(
     }
 
     case "place": {
-      if (!action.targetItemId && !action.targetItemName) {
-        return { success: false, message: "No item specified", events };
-      }
-
-      if (!action.targetPosition) {
-        return {
-          success: false,
-          message: "Must specify adjacent tile to place trap",
-          events,
-        };
-      }
-
       // Check target is adjacent
       const dx = Math.abs(action.targetPosition.x - character.position.x);
       const dy = Math.abs(action.targetPosition.y - character.position.y);
@@ -1244,17 +929,9 @@ export function executeAction(
         };
       }
 
-      let trapItem = action.targetItemId
-        ? character.inventory.find((i) => i.id === action.targetItemId)
-        : undefined;
-
-      if (!trapItem && action.targetItemName) {
-        const nameLower = action.targetItemName.toLowerCase();
-        trapItem = character.inventory.find(
-          (i) => i.name.toLowerCase().includes(nameLower) && i.type === "trap"
-        );
-      }
-
+      const trapItem = character.inventory.find(
+        (i) => i.id === action.targetItemId
+      );
       if (!trapItem) {
         return { success: false, message: "Trap not in inventory", events };
       }
@@ -1277,15 +954,6 @@ export function executeAction(
         damage: trapItem.trapDamage ?? 3,
         attackDebuff: trapItem.trapAttackDebuff ?? 2,
         debuffDuration: trapItem.trapDebuffDuration ?? 5,
-      });
-
-      addMemory(character, {
-        turn: world.turn,
-        type: "placed_trap",
-        description: `Placed ${trapItem.name} at (${action.targetPosition.x}, ${action.targetPosition.y})`,
-        location: { ...action.targetPosition },
-        itemId: trapItem.id,
-        source: "witnessed",
       });
 
       events.push({
@@ -1311,31 +979,10 @@ export function executeAction(
     }
 
     case "issue_contract": {
-      // Validate contract parameters - actual contract creation happens in main.ts
-      if (!action.targetCharacterId) {
+      if (action.contractExpiry < 1 || action.contractExpiry > 20) {
         return {
           success: false,
-          message: "Must specify target character for contract",
-          events,
-        };
-      }
-
-      if (!action.contractContents) {
-        return {
-          success: false,
-          message: "Must specify contract contents/terms",
-          events,
-        };
-      }
-
-      if (
-        !action.contractExpiry ||
-        action.contractExpiry < 1 ||
-        action.contractExpiry > 20
-      ) {
-        return {
-          success: false,
-          message: "Contract expiry must be between 1 and 5 turns",
+          message: "Contract expiry must be between 1 and 20 turns",
           events,
         };
       }
@@ -1377,16 +1024,6 @@ export function executeAction(
         };
       }
 
-      addMemory(character, {
-        turn: world.turn,
-        type: "issued_contract",
-        description: `Offered Blood Contract to ${targetChar.name}: "${
-          action.contractContents
-        }" (expires turn ${world.turn + action.contractExpiry})`,
-        characterId: targetChar.id,
-        source: "witnessed",
-      });
-
       const pitchPart = action.message ? ` saying "${action.message}"` : "";
       events.push({
         turn: world.turn,
@@ -1425,45 +1062,76 @@ export function executeAction(
     }
 
     case "unlock": {
-      if (!action.targetPosition) {
+      const doorName = action.targetDoorName.toLowerCase();
+
+      // Map door names to tile types and required keys
+      const doorConfig: Record<
+        string,
+        { tileType: TileType; keyName: string }
+      > = {
+        "blue door": { tileType: "blue_door", keyName: "blue" },
+      };
+
+      const config = Object.entries(doorConfig).find(([name]) =>
+        doorName.includes(name)
+      )?.[1];
+
+      if (!config) {
         return {
           success: false,
-          message: "No target position specified",
+          message: `Unknown door type: "${action.targetDoorName}"`,
           events,
         };
       }
 
-      const { x, y } = action.targetPosition;
+      // Find adjacent door of this type
+      const adjacentPositions = [
+        { x: character.position.x - 1, y: character.position.y },
+        { x: character.position.x + 1, y: character.position.y },
+        { x: character.position.x, y: character.position.y - 1 },
+        { x: character.position.x, y: character.position.y + 1 },
+      ];
 
-      // Check if adjacent
-      const dx = Math.abs(x - character.position.x);
-      const dy = Math.abs(y - character.position.y);
-      if (dx + dy !== 1) {
+      let doorPosition: Position | undefined;
+      let doorTile: Tile | undefined;
+
+      for (const pos of adjacentPositions) {
+        if (
+          pos.x < 0 ||
+          pos.x >= world.width ||
+          pos.y < 0 ||
+          pos.y >= world.height
+        ) {
+          continue;
+        }
+        const tile = world.tiles[pos.y][pos.x];
+        if (tile.type === config.tileType) {
+          doorPosition = pos;
+          doorTile = tile;
+          break;
+        }
+      }
+
+      if (!doorPosition || !doorTile) {
         return {
           success: false,
-          message: "Door must be adjacent to unlock",
+          message: `No ${action.targetDoorName} adjacent to unlock`,
           events,
         };
       }
 
-      const tile = world.tiles[y][x];
-      if (tile.type !== "blue_door") {
-        return {
-          success: false,
-          message: "There's no locked door there",
-          events,
-        };
-      }
-
-      // Check for blue key in inventory
+      // Check for matching key in inventory
       const keyIndex = character.inventory.findIndex(
         (item) =>
-          item.type === "key" && item.name.toLowerCase().includes("blue")
+          item.type === "key" &&
+          item.name.toLowerCase().includes(config.keyName)
       );
       if (keyIndex === -1) {
         return {
           success: false,
-          message: "You need a Blue Key to unlock this door",
+          message: `You need a ${
+            config.keyName.charAt(0).toUpperCase() + config.keyName.slice(1)
+          } Key to unlock this door`,
           events,
         };
       }
@@ -1473,7 +1141,7 @@ export function executeAction(
       character.inventory.splice(keyIndex, 1);
 
       // Change tile to ground
-      tile.type = "ground";
+      doorTile.type = "ground";
 
       const keyConsumedEvent: GameEvent = {
         turn: world.turn,
@@ -1488,39 +1156,17 @@ export function executeAction(
         turn: world.turn,
         type: "search",
         actorId: character.id,
-        position: action.targetPosition,
-        description: `🔓 ${character.name} unlocks the blue door at (${x}, ${y})!`,
-        witnessIds: getWitnessIds(world, action.targetPosition),
+        position: doorPosition,
+        description: `🔓 ${character.name} unlocks the ${action.targetDoorName} at (${doorPosition.x}, ${doorPosition.y})!`,
+        witnessIds: getWitnessIds(world, doorPosition),
       };
       events.push(unlockEvent);
-
-      // Add memory for the actor
-      addMemory(character, {
-        turn: world.turn,
-        type: "searched_container",
-        description: `Unlocked the blue door at (${x}, ${y}) using ${keyName} - the door is now open!`,
-        source: "witnessed",
-      });
-
-      // Add memories for witnesses
-      for (const other of world.characters) {
-        if (other.id === character.id || !other.alive) continue;
-        if (lineOfSight(world, other.position, action.targetPosition)) {
-          addMemory(other, {
-            turn: world.turn,
-            type: "searched_container",
-            description: `Saw ${character.name} use ${keyName} to unlock the blue door at (${x}, ${y}) - the key was consumed and the door is now open!`,
-            characterId: character.id,
-            source: "witnessed",
-          });
-        }
-      }
 
       // Update map memory for all characters who can see this tile
       for (const c of world.characters) {
         if (!c.alive) continue;
-        if (lineOfSight(world, c.position, action.targetPosition)) {
-          c.mapMemory.set(`${x},${y}`, {
+        if (lineOfSight(world, c.position, doorPosition)) {
+          c.mapMemory.set(`${doorPosition.x},${doorPosition.y}`, {
             type: "ground",
             lastSeenTurn: world.turn,
           });
@@ -1529,7 +1175,7 @@ export function executeAction(
 
       return {
         success: true,
-        message: `Unlocked the door at (${x}, ${y})`,
+        message: `Unlocked the ${action.targetDoorName}`,
         events,
       };
     }
@@ -1605,11 +1251,17 @@ export function getCharacterKnowledge(
       possibleActions.push({ type: "search_container", targetItemId: item.id });
       if (item.searched && item.contents) {
         for (const content of item.contents) {
-          possibleActions.push({ type: "pick_up", targetItemId: content.id });
+          possibleActions.push({
+            type: "pick_up",
+            targetItemId: content.id,
+          });
         }
       }
     } else {
-      possibleActions.push({ type: "pick_up", targetItemId: item.id });
+      possibleActions.push({
+        type: "pick_up",
+        targetItemId: item.id,
+      });
     }
   }
 
@@ -1661,7 +1313,9 @@ export function getCharacterKnowledge(
       equippedClothing: character.equippedClothing,
     },
     visible,
-    memories: character.memories,
+    witnessedEvents: world.events.filter((e) =>
+      e.witnessIds.includes(character.id)
+    ),
     possibleActions,
   };
 }
