@@ -25,6 +25,7 @@ import {
   getConversationResponse,
 } from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
+import { playSoundForEvent } from "./sounds";
 
 type WorldSnapshot = {
   turn: number;
@@ -65,6 +66,7 @@ function pushEvent(event: Omit<GameEvent, "order">): void {
   const fullEvent: GameEvent = { ...event, order: eventOrderCounter++ };
   world.events.push(fullEvent);
   addLogEntry(fullEvent);
+  playSoundForEvent(event.type);
 }
 let chronologicalLog: LogEntry[] = [];
 let snapshots: WorldSnapshot[] = [];
@@ -814,7 +816,7 @@ async function handleConversation(
   target: Character,
   initialMessage: string
 ): Promise<void> {
-  const maxExchanges = 2; // A speaks, B responds, A responds (3 total messages, 2 exchanges after initial)
+  const maxExchanges = 1; // A speaks, B responds (2 total messages, 1 exchange after initial)
   let speaker = target;
   let listener = initiator;
   let lastMessage = initialMessage;

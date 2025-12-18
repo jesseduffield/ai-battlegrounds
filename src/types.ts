@@ -230,6 +230,7 @@ export type GameEventType =
   | "miss"
   | "place_trap"
   | "trap_triggered"
+  | "unlock"
   | "contract_issued"
   | "contract_signed"
   | "contract_judged"

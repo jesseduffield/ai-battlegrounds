@@ -1215,7 +1215,7 @@ export function executeAction(
 
       const unlockEvent: GameEvent = {
         turn: world.turn,
-        type: "search",
+        type: "unlock",
         actorId: character.id,
         position: doorPosition,
         description: `🔓 ${character.name} unlocks the ${action.targetDoorName} at (${doorPosition.x}, ${doorPosition.y})!`,
