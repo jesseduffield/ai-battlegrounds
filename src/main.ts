@@ -881,7 +881,9 @@ async function handleConversation(
       actorId: speaker.id,
       targetId: listener.id,
       message: responseMessage,
-      description: `${speaker.name} responds to ${listener.name}: "${responseMessage}"`,
+      description: `${speaker.name} responds to ${
+        listener.name
+      }: "${responseMessage.replace(/\n/g, " ")}"`,
       witnessIds: [speaker.id, listener.id],
     });
 
@@ -2463,7 +2465,9 @@ function init(): void {
     type: "move",
     actorId: "",
     description: "",
-    witnessIds: [],
+    witnessIds: world.characters
+      .filter((character) => character.alive)
+      .map((character) => character.id),
   };
   pushEvent(initialEvent);
 

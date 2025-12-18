@@ -12,7 +12,7 @@ import type {
   CharacterKnowledge,
 } from "./types";
 
-export const MAX_TALK_DISTANCE = 6;
+export const MAX_TALK_DISTANCE = 15;
 
 export function createId(): string {
   return Math.random().toString(36).substring(2, 11);

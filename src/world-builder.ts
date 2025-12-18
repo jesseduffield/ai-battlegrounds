@@ -413,6 +413,9 @@ export function createCageMap(): World {
   // Place the blue key outside the cage
   tiles[7][8].items.push(blueKey);
 
+  // Place the knife inside the cage
+  tiles[7][4].items.push(knife);
+
   // Personality prompts
   const prisonerPrompt = `You are "The Beast", a legendary warrior who was captured and caged. A hunter has entered the prison and has the goal of killing everybody in the prison.`;
 
