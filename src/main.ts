@@ -884,7 +884,7 @@ async function handleConversation(
       description: `${speaker.name} responds to ${
         listener.name
       }: "${responseMessage.replace(/\n/g, " ")}"`,
-      witnessIds: [speaker.id, listener.id],
+      witnessIds: getWitnessIds(world, [speaker.position, listener.position]),
     });
 
     // Swap roles
@@ -1064,7 +1064,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name} has broken free from the trap!`,
-          witnessIds: getWitnessIds(world, current.position),
+          witnessIds: getWitnessIds(world, [current.position]),
         };
         pushEvent(freeEvent);
       }
@@ -1131,7 +1131,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name}: turn ended due to repeated errors`,
-          witnessIds: getWitnessIds(world, current.position),
+          witnessIds: getWitnessIds(world, [current.position]),
         };
         pushEvent(evt);
         break;
@@ -1150,7 +1150,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name}: move (REJECTED - already moved this turn)`,
-          witnessIds: getWitnessIds(world, current.position),
+          witnessIds: getWitnessIds(world, [current.position]),
         };
         pushEvent(evt);
         continue;
@@ -1166,7 +1166,7 @@ async function processTurn(): Promise<void> {
           type: "move",
           actorId: current.id,
           description: `${current.name} cannot attack after equipping this turn`,
-          witnessIds: getWitnessIds(world, current.position),
+          witnessIds: getWitnessIds(world, [current.position]),
         };
         pushEvent(evt);
         turnEnded = true;
@@ -1228,7 +1228,7 @@ async function processTurn(): Promise<void> {
           description: `${current.name}: ${action.type}${
             result.success ? "" : ` (failed: ${result.message})`
           }`,
-          witnessIds: getWitnessIds(world, current.position),
+          witnessIds: getWitnessIds(world, [current.position]),
         };
         pushEvent(evt);
       }
@@ -1381,7 +1381,10 @@ async function processTurn(): Promise<void> {
               description: `${target.name} declined the Blood Contract${
                 response ? `: "${response}"` : ""
               }`,
-              witnessIds: [target.id, current.id],
+              witnessIds: getWitnessIds(world, [
+                target.position,
+                current.position,
+              ]),
             };
             pushEvent(declineEvt);
 
@@ -2477,7 +2480,7 @@ function init(): void {
       type: "move",
       actorId: character.id,
       description: `${character.name} is at (${character.position.x}, ${character.position.y})`,
-      witnessIds: getWitnessIds(world, character.position),
+      witnessIds: getWitnessIds(world, [character.position]),
     };
     pushEvent(evt);
   }
