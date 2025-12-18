@@ -48,6 +48,8 @@ function createTestCharacter(
     alive: true,
     mapMemory: new Map(),
     debuffTurnsRemaining: 0,
+    aiModel: "gpt-5.2",
+    reasoningEffort: "medium",
     ...overrides,
   };
 }
@@ -729,5 +731,217 @@ describe("Talk through bars", () => {
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("too far");
+  });
+});
+
+describe("Pickup Action", () => {
+  it("should pick up an item on the current tile", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const item = {
+      id: createId(),
+      name: "Test Sword",
+      type: "weapon" as const,
+      damage: 5,
+    };
+    world.tiles[5][5].items.push(item);
+
+    const result = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "Test Sword",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Picked up Test Sword");
+    expect(character.inventory).toContain(item);
+    expect(world.tiles[5][5].items).not.toContain(item);
+  });
+
+  it("should pick up an item from an adjacent tile", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const item = {
+      id: createId(),
+      name: "Adjacent Key",
+      type: "key" as const,
+    };
+    world.tiles[5][6].items.push(item); // Adjacent tile (x+1)
+
+    const result = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "Adjacent Key",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Picked up Adjacent Key");
+    expect(character.inventory).toContain(item);
+    expect(world.tiles[5][6].items).not.toContain(item);
+  });
+
+  it("should pick up an item from a searched container", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const itemInContainer = {
+      id: createId(),
+      name: "Hidden Dagger",
+      type: "weapon" as const,
+      damage: 3,
+    };
+    const container = {
+      id: createId(),
+      name: "Chest",
+      type: "container" as const,
+      searched: true,
+      contents: [itemInContainer],
+    };
+    world.tiles[5][5].items.push(container);
+
+    const result = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "Hidden Dagger",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Picked up Hidden Dagger");
+    expect(character.inventory).toContain(itemInContainer);
+    expect(container.contents).not.toContain(itemInContainer);
+  });
+
+  it("should NOT pick up an item from an unsearched container", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const itemInContainer = {
+      id: createId(),
+      name: "Hidden Dagger",
+      type: "weapon" as const,
+      damage: 3,
+    };
+    const container = {
+      id: createId(),
+      name: "Chest",
+      type: "container" as const,
+      searched: false, // Not searched!
+      contents: [itemInContainer],
+    };
+    world.tiles[5][5].items.push(container);
+
+    const result = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "Hidden Dagger",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("not found");
+    expect(character.inventory).not.toContain(itemInContainer);
+  });
+
+  it("should NOT pick up an item that is too far away", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const item = {
+      id: createId(),
+      name: "Distant Item",
+      type: "weapon" as const,
+      damage: 5,
+    };
+    world.tiles[5][8].items.push(item); // 3 tiles away (not adjacent)
+
+    const result = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "Distant Item",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("not found");
+    expect(character.inventory).toHaveLength(0);
+    expect(world.tiles[5][8].items).toContain(item);
+  });
+
+  it("should NOT pick up an item that does not exist", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const result = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "nonexistent-item",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("not found");
+    expect(character.inventory).toHaveLength(0);
+  });
+
+  it("should pick up from all four adjacent directions", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const directions = [
+      { x: 4, y: 5, name: "Left Sword" },
+      { x: 6, y: 5, name: "Right Sword" },
+      { x: 5, y: 4, name: "Up Sword" },
+      { x: 5, y: 6, name: "Down Sword" },
+    ];
+
+    for (const dir of directions) {
+      const item = {
+        id: createId(),
+        name: dir.name,
+        type: "weapon" as const,
+        damage: 1,
+      };
+      world.tiles[dir.y][dir.x].items.push(item);
+
+      const result = executeAction(world, character, {
+        type: "pick_up",
+        targetItemName: dir.name,
+      });
+
+      expect(result.success).toBe(true);
+      expect(character.inventory).toContain(item);
+    }
+
+    expect(character.inventory).toHaveLength(4);
+  });
+
+  it("should require exact name match (case-insensitive)", () => {
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Picker", 5, 5);
+    world.characters.push(character);
+
+    const item = {
+      id: createId(),
+      name: "Legendary Sword",
+      type: "weapon" as const,
+      damage: 10,
+    };
+    world.tiles[5][5].items.push(item);
+
+    // Partial match should fail
+    const partialResult = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "sword",
+    });
+    expect(partialResult.success).toBe(false);
+
+    // Exact match (different case) should succeed
+    const exactResult = executeAction(world, character, {
+      type: "pick_up",
+      targetItemName: "legendary sword",
+    });
+    expect(exactResult.success).toBe(true);
+    expect(exactResult.message).toContain("Picked up Legendary Sword");
+    expect(character.inventory).toContain(item);
   });
 });

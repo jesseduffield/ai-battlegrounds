@@ -1,3 +1,5 @@
+import type OpenAI from "openai";
+
 export type Position = {
   x: number;
   y: number;
@@ -71,6 +73,8 @@ export type TileMemory = {
   characterAlive?: boolean;
 };
 
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
+
 export type Character = {
   id: string;
   name: string;
@@ -88,6 +92,8 @@ export type Character = {
   debuffTurnsRemaining: number;
   trapped?: boolean;
   attackDebuff?: number;
+  aiModel: OpenAI.ResponsesModel;
+  reasoningEffort: ReasoningEffort;
 };
 
 export type Room = {
@@ -123,7 +129,7 @@ export type SearchContainerAction = {
 
 export type PickUpAction = {
   type: "pick_up";
-  targetItemId: string;
+  targetItemName: string;
 };
 
 export type DropAction = {

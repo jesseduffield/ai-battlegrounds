@@ -1,5 +1,6 @@
 import type { World, Tile, Character, Item, Room } from "./types";
 import { createId, initializeCharacterMemory } from "./engine";
+import { DEFAULT_REASONING_EFFORT, DEFAULT_AI_MODEL } from "./agent";
 
 function createTile(type: Tile["type"]): Tile {
   return { type, items: [], traps: [] };
@@ -33,6 +34,8 @@ function createCharacter(
     viewDistance: options.viewDistance ?? 20,
     mapMemory: new Map(),
     debuffTurnsRemaining: 0,
+    reasoningEffort: options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+    aiModel: options.aiModel ?? DEFAULT_AI_MODEL,
     ...options,
   };
 }
@@ -151,6 +154,8 @@ export function createTownMap(): World {
       {
         inventory: [hunterKnife1],
         equippedWeapon: hunterKnife1,
+        aiModel: "gpt-4o",
+        reasoningEffort: "none",
       }
     ),
 

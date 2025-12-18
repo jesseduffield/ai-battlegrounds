@@ -15,6 +15,8 @@ import {
 import OpenAI from "openai";
 
 const MAX_COMPLETION_TOKENS = 10_000;
+export const DEFAULT_AI_MODEL = "gpt-5.2";
+export const DEFAULT_REASONING_EFFORT = "high" as const;
 
 let openai: OpenAI | null = null;
 
@@ -707,19 +709,10 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "PICKUP requires a target" };
       }
-      const visibleItem = knowledge.visible.items.find((i) =>
-        i.item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
-      );
-      if (!visibleItem) {
-        return {
-          action: null,
-          error: `PICKUP failed: "${jsonResponse.target}" not found nearby`,
-        };
-      }
       return {
         action: {
           type: "pick_up",
-          targetItemId: visibleItem.item.id,
+          targetItemName: jsonResponse.target,
         },
         error: null,
       };
@@ -1013,7 +1006,7 @@ export async function getAgentDecision(
     }));
   const talkAction =
     talkableCharacters.length > 0
-      ? `- TALK: Speak to character within ${MAX_TALK_DISTANCE} tiles (works through bars). Available: ${talkableCharacters
+      ? `- TALK: Speak to character within ${MAX_TALK_DISTANCE} tiles (works through bars). MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Available: ${talkableCharacters
           .map((c) => `${c.name} (${c.dist} tiles)`)
           .join(", ")}. Does NOT end turn (max 1 conversation per turn).`
       : `- [UNAVAILABLE] TALK - No characters within ${MAX_TALK_DISTANCE} tiles.`;
@@ -1073,7 +1066,7 @@ What do you do?`;
 
   try {
     const response = await openai.responses.create({
-      model: "gpt-5.2",
+      model: character.aiModel,
       input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -1085,9 +1078,9 @@ What do you do?`;
         },
       },
       max_output_tokens: MAX_COMPLETION_TOKENS,
-      reasoning: {
-        effort: "low",
-      },
+      ...(character.reasoningEffort === "none"
+        ? undefined
+        : { reasoning: { effort: character.reasoningEffort } }),
     });
 
     // Extract reasoning summary from output
@@ -1214,8 +1207,11 @@ You are deciding whether to accept or reject a blood contract. Consider your goa
 ${contractOffer}`;
 
   try {
+    const model = target.aiModel;
+    const reasoningEffort = target.reasoningEffort;
+
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model,
       messages: [
         {
           role: "system",
@@ -1228,7 +1224,9 @@ ${contractOffer}`;
         json_schema: contractNegotiationSchema,
       },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "low",
+      ...(reasoningEffort !== "none"
+        ? { reasoning_effort: reasoningEffort }
+        : undefined),
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1290,7 +1288,7 @@ export async function getConversationResponse(
   const systemPrompt = `You are ${speaker.name}. ${speaker.personalityPrompt}
 
 This is a conversation response. You can ONLY respond with:
-- TALK: Say something back (requires a message)
+- TALK: Say something back (requires a message). MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead.
 - WAIT: End the conversation (say nothing more)
 
 No other actions are allowed.
@@ -1307,8 +1305,11 @@ ${situationDescription}
 How do you respond?`;
 
   try {
+    const model = speaker.aiModel;
+    const reasoningEffort = speaker.reasoningEffort;
+
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -1318,7 +1319,9 @@ How do you respond?`;
         json_schema: conversationResponseSchema,
       },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "low",
+      ...(reasoningEffort !== "none"
+        ? { reasoning_effort: reasoningEffort }
+        : undefined),
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1447,11 +1450,11 @@ If a party died during the contract period, they cannot be a violator (death rel
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: DEFAULT_AI_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "low",
+      reasoning_effort: DEFAULT_REASONING_EFFORT,
     });
 
     const content = response.choices[0]?.message?.content;

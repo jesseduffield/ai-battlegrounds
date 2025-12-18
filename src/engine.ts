@@ -644,6 +644,7 @@ export function executeAction(
 
       let item: Item | undefined;
       let foundPosition: Position | undefined;
+      const searchName = action.targetItemName.toLowerCase();
 
       for (const pos of adjacentPositions) {
         if (
@@ -657,9 +658,9 @@ export function executeAction(
 
         const tile = world.tiles[pos.y][pos.x];
 
-        // Check items on tile
+        // Check items on tile (exact match)
         const tileItemIndex = tile.items.findIndex(
-          (i) => i.id === action.targetItemId
+          (i) => i.name.toLowerCase() === searchName
         );
         if (tileItemIndex >= 0) {
           item = tile.items[tileItemIndex];
@@ -668,12 +669,12 @@ export function executeAction(
           break;
         }
 
-        // Check inside searched containers on tile
+        // Check inside searched containers on tile (exact match)
         for (const container of tile.items.filter(
           (i) => i.type === "container" && i.searched
         )) {
           const containerItemIndex = (container.contents ?? []).findIndex(
-            (i) => i.id === action.targetItemId
+            (i) => i.name.toLowerCase() === searchName
           );
           if (containerItemIndex >= 0) {
             item = container.contents![containerItemIndex];
@@ -1317,14 +1318,14 @@ export function getCharacterKnowledge(
         for (const content of item.contents) {
           possibleActions.push({
             type: "pick_up",
-            targetItemId: content.id,
+            targetItemName: content.name,
           });
         }
       }
     } else {
       possibleActions.push({
         type: "pick_up",
-        targetItemId: item.id,
+        targetItemName: item.name,
       });
     }
   }

@@ -1,4 +1,4 @@
-import { createBloodsportMap } from "./world-builder";
+import { createTownMap } from "./world-builder";
 import {
   render,
   getCanvasSize,
@@ -1799,7 +1799,7 @@ async function executePlayerActionFromClick(
       if (item) {
         action = {
           type: "pick_up",
-          targetItemId: item.id,
+          targetItemName: item.name,
         };
       } else {
         // Check for items inside searched containers
@@ -1810,7 +1810,7 @@ async function executePlayerActionFromClick(
             item = container.contents[0];
             action = {
               type: "pick_up",
-              targetItemId: item.id,
+              targetItemName: item.name,
             };
             break;
           }
@@ -2454,7 +2454,7 @@ function showApiKeyPrompt(): void {
 }
 
 function init(): void {
-  world = createBloodsportMap(); // Options: createBloodsportMap(), createCageMap()
+  world = createTownMap(); // Options: createBloodsportMap(), createCageMap()
 
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
