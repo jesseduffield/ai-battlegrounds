@@ -1,5 +1,5 @@
 import type { World, Tile, Character, Item, Room } from "./types";
-import { createId } from "./engine";
+import { createId, initializeCharacterMemory } from "./engine";
 
 function createTile(type: Tile["type"]): Tile {
   return { type, items: [], traps: [] };
@@ -206,7 +206,7 @@ export function createTownMap(): World {
     ),
   ];
 
-  return {
+  const world: World = {
     width,
     height,
     tiles,
@@ -216,6 +216,12 @@ export function createTownMap(): World {
     activeContracts: [],
     events: [],
   };
+
+  for (const character of world.characters) {
+    initializeCharacterMemory(world, character);
+  }
+
+  return world;
 }
 
 export function createBloodsportMap(): World {
@@ -330,7 +336,7 @@ Think carefully about which strategy is best to ensure your survival.`;
     ),
   ];
 
-  return {
+  const world: World = {
     width,
     height,
     tiles,
@@ -340,6 +346,12 @@ Think carefully about which strategy is best to ensure your survival.`;
     activeContracts: [],
     events: [],
   };
+
+  for (const character of world.characters) {
+    initializeCharacterMemory(world, character);
+  }
+
+  return world;
 }
 
 export function createCageMap(): World {
@@ -443,7 +455,7 @@ export function createCageMap(): World {
     }),
   ];
 
-  return {
+  const world: World = {
     width,
     height,
     tiles,
@@ -453,4 +465,10 @@ export function createCageMap(): World {
     activeContracts: [],
     events: [],
   };
+
+  for (const character of world.characters) {
+    initializeCharacterMemory(world, character);
+  }
+
+  return world;
 }

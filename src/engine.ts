@@ -232,6 +232,32 @@ export function getVisibleTiles(
   return visible;
 }
 
+export function initializeCharacterMemory(
+  world: World,
+  character: Character
+): void {
+  const visible = getVisibleTiles(world, character);
+
+  for (const visibleTile of visible.tiles) {
+    const pos = visibleTile.position;
+    const key = `${pos.x},${pos.y}`;
+    const charAtTile = visible.characters.find(
+      (c) => c.position.x === pos.x && c.position.y === pos.y
+    );
+    const itemsAtTile = visible.items
+      .filter((i) => i.position.x === pos.x && i.position.y === pos.y)
+      .map((i) => i.item.name);
+
+    character.mapMemory.set(key, {
+      type: visibleTile.type,
+      lastSeenTurn: world.turn,
+      items: itemsAtTile.length > 0 ? itemsAtTile : undefined,
+      characterName: charAtTile?.character.name,
+      characterAlive: charAtTile?.character.alive,
+    });
+  }
+}
+
 export function findPath(
   world: World,
   from: Position,

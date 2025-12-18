@@ -14,6 +14,8 @@ import {
 } from "./engine";
 import OpenAI from "openai";
 
+const MAX_COMPLETION_TOKENS = 2000;
+
 let openai: OpenAI | null = null;
 
 export function initializeAgent(apiKey: string): void {
@@ -1029,8 +1031,8 @@ What do you do?`;
         type: "json_schema",
         json_schema: actionResponseSchema,
       },
-      max_completion_tokens: 500,
-      temperature: 0.7,
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
+      reasoning_effort: "medium",
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1141,8 +1143,8 @@ Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
         type: "json_schema",
         json_schema: contractNegotiationSchema,
       },
-      max_completion_tokens: 200,
-      temperature: 0.7,
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
+      reasoning_effort: "medium",
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1229,8 +1231,8 @@ How do you respond?`;
         type: "json_schema",
         json_schema: conversationResponseSchema,
       },
-      max_completion_tokens: 300,
-      temperature: 0.7,
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
+      reasoning_effort: "medium",
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1330,7 +1332,8 @@ If a party died during the contract period, they cannot be a violator (death rel
       model: "gpt-5.2",
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
-      max_completion_tokens: 500,
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
+      reasoning_effort: "medium",
     });
 
     const content = response.choices[0]?.message?.content;
