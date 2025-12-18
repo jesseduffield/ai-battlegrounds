@@ -302,7 +302,7 @@ function formatKnowledge(
     lines.push(`\n=== KNOWN OBJECTS ===`);
     for (const { item, position } of allItems) {
       const dist = manhattanDistance(pos, position);
-      const adjacent = dist === 1;
+      const adjacent = dist <= 1;
       let desc = `${item.name} at ${formatPosition(position)}`;
 
       if (item.type === "container") {
@@ -318,7 +318,7 @@ function formatKnowledge(
           }
         } else {
           desc += ` [not searched]`;
-          if (adjacent) desc += ` - ADJACENT, can SEARCH`;
+          if (adjacent) desc += ` - can SEARCH`;
         }
       } else if (item.type === "weapon") {
         desc += ` [weapon, ${item.damage} damage]`;
@@ -328,15 +328,6 @@ function formatKnowledge(
         desc += ` [trap]`;
         if (adjacent)
           desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
-      } else if (item.type === "contract" && item.contract) {
-        const contract = item.contract;
-        if (contract.targetId === character.id) {
-          desc += ` [Blood Contract FOR YOU from ${contract.issuerName}]`;
-          desc += ` - Terms: "${contract.contents}" (expires turn ${contract.expiryTurn})`;
-          if (adjacent) desc += ` - ADJACENT, can SIGN`;
-        } else {
-          desc += ` [Blood Contract for ${contract.targetName}]`;
-        }
       } else {
         if (adjacent) desc += ` - ADJACENT`;
       }
@@ -452,6 +443,7 @@ const actionResponseSchema = {
           "PICKUP",
           "DROP",
           "EQUIP",
+          "UNEQUIP",
           "PLACE",
           "CONTRACT",
           "UNLOCK",
@@ -730,6 +722,25 @@ function parseJsonAction(
       };
     }
 
+    case "UNEQUIP": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "UNEQUIP requires a target" };
+      }
+      const item = knowledge.status.inventory.find((i) =>
+        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!item) {
+        return {
+          action: null,
+          error: `UNEQUIP failed: "${jsonResponse.target}" not in inventory`,
+        };
+      }
+      return {
+        action: { type: "unequip", targetItemId: item.id },
+        error: null,
+      };
+    }
+
     case "PLACE": {
       if (jsonResponse.x === null || jsonResponse.y === null) {
         return { action: null, error: "PLACE requires x and y coordinates" };
@@ -984,11 +995,12 @@ ${moveAction}
 ${talkAction}
 - SEARCH: Search adjacent container. Requires target (container name).
 ${pickupAction}
-- EQUIP: Equip weapon/clothing from inventory. Requires target (item name).
+- EQUIP: Equip weapon/clothing from inventory. Requires target (item name). You cannot equip and attack in the same turn.
+- UNEQUIP: Unequip weapon/clothing. Requires target (item name). Can signal good faith to others.
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
 ${unlockAction}
 - DROP: Drop item from inventory. Requires target (item name).
-- CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn.
+- CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
 - SIGN: Accept a Blood Contract being offered to you. Use during contract negotiation.
 - WAIT: End turn. No parameters.
 

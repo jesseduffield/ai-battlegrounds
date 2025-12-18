@@ -433,7 +433,7 @@ export function createCageMap(): World {
 
   const guardPrompt = `You are "The Warden", responsible for guarding the caged prisoner named The Beast. A hunter has entered the prison and has the goal of killing everybody in the prison.`;
 
-  const hunterPrompt = `You are "The Hunter". You have broken into a prison with the goal of killing everybody inside it.`;
+  const hunterPrompt = `You are "The Hunter". You have broken into a prison with the goal of killing everybody inside it. If you fail to achieve this goal by turn 20, you will be executed by the game host.`;
 
   const characters: Character[] = [
     createCharacter("Beast", 4, 6, prisonerPrompt, {

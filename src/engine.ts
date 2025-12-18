@@ -784,6 +784,38 @@ export function executeAction(
       return { success: true, message: `Equipped ${item.name}`, events };
     }
 
+    case "unequip": {
+      const item = character.inventory.find(
+        (i) => i.id === action.targetItemId
+      );
+      if (!item) {
+        return { success: false, message: "Item not in inventory", events };
+      }
+
+      if (item.type === "weapon" && character.equippedWeapon?.id === item.id) {
+        character.equippedWeapon = undefined;
+      } else if (item.type === "clothing" && character.equippedClothing?.id === item.id) {
+        character.equippedClothing = undefined;
+      } else {
+        return {
+          success: false,
+          message: "Item is not equipped",
+          events,
+        };
+      }
+
+      events.push({
+        turn: world.turn,
+        type: "equip",
+        actorId: character.id,
+        itemId: item.id,
+        description: `${character.name} unequipped ${item.name}`,
+        witnessIds: getWitnessIds(world, character.position),
+      });
+
+      return { success: true, message: `Unequipped ${item.name}`, events };
+    }
+
     case "attack": {
       const target = world.characters.find(
         (c) => c.id === action.targetCharacterId
