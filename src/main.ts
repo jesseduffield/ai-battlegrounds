@@ -981,11 +981,11 @@ async function handleContractNegotiation(
   renderWorld();
 
   const result = await getContractDecision(
+    world,
+    target,
     issuer.name,
-    target.name,
     contents,
     expiry,
-    world.turn,
     pitch
   );
 

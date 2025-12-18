@@ -111,6 +111,44 @@ function findBestTileToward(
   return bestTile;
 }
 
+function generateOmniscientMap(world: World): string {
+  const lines: string[] = [];
+
+  const header =
+    "   " +
+    Array.from({ length: world.width }, (_, i) => (i % 10).toString()).join("");
+  lines.push(header);
+
+  for (let y = 0; y < world.height; y++) {
+    let row = y.toString().padStart(2, " ") + " ";
+    for (let x = 0; x < world.width; x++) {
+      const tile = world.tiles[y][x];
+      const charAtTile = world.characters.find(
+        (c) => c.alive && c.position.x === x && c.position.y === y
+      );
+
+      if (charAtTile) {
+        row += charAtTile.name.charAt(0).toUpperCase();
+      } else if (tile.type === "wall") {
+        row += "#";
+      } else if (tile.type === "bars") {
+        row += "|";
+      } else if (tile.type === "blue_door") {
+        row += "D";
+      } else if (tile.type === "door") {
+        row += "+";
+      } else if (tile.items.length > 0) {
+        row += "*";
+      } else {
+        row += ".";
+      }
+    }
+    lines.push(row);
+  }
+
+  return lines.join("\n");
+}
+
 function generateAsciiMap(world: World, character: Character): string {
   const lines: string[] = [];
 
@@ -1114,11 +1152,11 @@ export type ContractNegotiationResult = {
 };
 
 export async function getContractDecision(
+  world: World,
+  target: Character,
   issuerName: string,
-  targetName: string,
   contents: string,
   expiry: number,
-  currentTurn: number,
   pitch?: string
 ): Promise<ContractNegotiationResult> {
   if (!openai) {
@@ -1131,15 +1169,27 @@ export async function getContractDecision(
     };
   }
 
+  const knowledge = getCharacterKnowledge(world, target);
+  const situationDescription = formatKnowledge(world, target, knowledge, false);
+
   const pitchLine = pitch ? `\n${issuerName} says: "${pitch}"\n` : "";
-  const prompt = `${issuerName} offers you a BLOOD CONTRACT:
+  const contractOffer = `
+=== BLOOD CONTRACT OFFER ===
+${issuerName} offers you a BLOOD CONTRACT:
 ${pitchLine}
 Terms: "${contents}"
-Duration: ${expiry} turns (expires turn ${currentTurn + expiry})
+Duration: ${expiry} turns (expires turn ${world.turn + expiry})
 
 ⚠️ WARNING: If you sign and violate the terms, the Great Judge will KILL YOU when it expires! On the flip side, if the other party violates the terms, the Great Judge will KILL THEM when it expires! Blood contracts allow for more secure cooperation.
 
 Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
+
+  const systemPrompt = `You are ${target.name}. ${target.personalityPrompt}
+
+You are deciding whether to accept or reject a blood contract. Consider your goals, the current situation, and whether you can realistically comply with the terms.`;
+
+  const userPrompt = `${situationDescription}
+${contractOffer}`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -1147,9 +1197,9 @@ Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
       messages: [
         {
           role: "system",
-          content: `You are ${targetName}. Decide whether to accept or reject this blood contract.`,
+          content: systemPrompt,
         },
-        { role: "user", content: prompt },
+        { role: "user", content: userPrompt },
       ],
       response_format: {
         type: "json_schema",
@@ -1166,20 +1216,22 @@ Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
       message: string | null;
     };
 
+    const fullPrompt = `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`;
     return {
       signed: parsed.action.toUpperCase() === "SIGN",
       thought: parsed.thought,
       message: parsed.message,
-      fullPrompt: prompt,
+      fullPrompt,
       fullResponse: content,
     };
   } catch (err) {
     console.error("Contract decision error:", err);
+    const fullPrompt = `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`;
     return {
       signed: false,
       thought: "Error processing decision",
       message: null,
-      fullPrompt: prompt,
+      fullPrompt,
       fullResponse: "",
     };
   }
@@ -1290,33 +1342,65 @@ export async function judgeContract(
     (e) => e.turn >= contract.createdTurn && e.turn <= contract.expiryTurn
   );
 
-  const issuer = world.characters.find((c) => c.id === contract.issuerId);
-  const target = world.characters.find((c) => c.id === contract.targetId);
-
   const eventLog = relevantEvents
     .map((e) => `[Turn ${e.turn}] ${e.description}`)
     .join("\n");
+
+  const allCharactersStatus = world.characters
+    .map((c) => {
+      const weapon = c.equippedWeapon
+        ? `, armed with ${c.equippedWeapon.name}`
+        : ", unarmed";
+      const trapped =
+        c.debuffTurnsRemaining > 0
+          ? `, TRAPPED (${c.debuffTurnsRemaining} turns)`
+          : "";
+      const inventory =
+        c.inventory.length > 0
+          ? `, inventory: [${c.inventory.map((i) => i.name).join(", ")}]`
+          : "";
+      if (c.alive) {
+        return `- ${c.name}: Alive at (${c.position.x}, ${c.position.y}), HP ${c.hp}/${c.maxHp}${weapon}${trapped}${inventory}`;
+      } else {
+        return `- ${c.name}: DEAD at (${c.position.x}, ${c.position.y})`;
+      }
+    })
+    .join("\n");
+
+  const allItems: string[] = [];
+  for (let y = 0; y < world.height; y++) {
+    for (let x = 0; x < world.width; x++) {
+      for (const item of world.tiles[y][x].items) {
+        allItems.push(`- ${item.name} at (${x}, ${y}) [${item.type}]`);
+      }
+    }
+  }
+  const itemsList =
+    allItems.length > 0 ? allItems.join("\n") : "(No items on map)";
+
+  const asciiMap = generateOmniscientMap(world);
 
   const prompt = `You are the Great Judge, an all-seeing divine entity who enforces Blood Contracts.
 
 A Blood Contract has expired and you must render judgment.
 
-CONTRACT DETAILS:
+=== CONTRACT DETAILS ===
 - Between: ${contract.issuerName} and ${contract.targetName}
 - Terms: "${contract.contents}"
 - Created: Turn ${contract.createdTurn}
 - Expired: Turn ${contract.expiryTurn}
 
-RELEVANT EVENTS DURING CONTRACT PERIOD:
+=== ALL EVENTS DURING CONTRACT PERIOD ===
 ${eventLog || "(No events recorded)"}
 
-CURRENT STATUS:
-- ${contract.issuerName}: ${
-    issuer?.alive ? `Alive, HP ${issuer.hp}/${issuer.maxHp}` : "Dead"
-  }
-- ${contract.targetName}: ${
-    target?.alive ? `Alive, HP ${target.hp}/${target.maxHp}` : "Dead"
-  }
+=== ALL CHARACTERS STATUS ===
+${allCharactersStatus}
+
+=== ALL ITEMS ON MAP ===
+${itemsList}
+
+=== MAP (Legend: # = wall, | = bars, D = locked door, . = floor, * = item, Letter = character) ===
+${asciiMap}
 
 Your task: Determine if either party violated the terms of the contract.
 
