@@ -1,4 +1,4 @@
-import { createCageMap } from "./world-builder";
+import { createBloodsportMap } from "./world-builder";
 import {
   render,
   getCanvasSize,
@@ -8,6 +8,7 @@ import {
   updateAnimations,
   isAnimating,
   setThinkingCharacter,
+  setSpeakingCharacter,
 } from "./renderer";
 import {
   executeAction,
@@ -26,6 +27,7 @@ import {
 } from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
 import { playSoundForEvent } from "./sounds";
+import { initializeSpeech, speakText } from "./speech";
 
 type WorldSnapshot = {
   turn: number;
@@ -206,6 +208,16 @@ function showThoughtBubble(
   const content = document.getElementById("thought-content");
   const modeIndicator = document.getElementById("thought-mode");
 
+  // Set the appropriate character state for canvas rendering
+  if (mode === "speaking") {
+    setSpeakingCharacter(character.id);
+    setThinkingCharacter(null);
+  } else {
+    setThinkingCharacter(character.id);
+    setSpeakingCharacter(null);
+  }
+  renderWorld();
+
   if (bubble && avatar && name && content) {
     const color = CHARACTER_COLORS[character.name] ?? "#e8c84a";
     avatar.style.backgroundColor = color;
@@ -232,6 +244,9 @@ function showThoughtBubble(
 }
 
 function hideThoughtBubble(): void {
+  setSpeakingCharacter(null);
+  setThinkingCharacter(null);
+  renderWorld();
   const bubble = document.getElementById("thought-bubble");
   if (bubble) {
     bubble.classList.remove("visible");
@@ -885,6 +900,7 @@ async function handleConversation(
 
     // Show their response
     showThoughtBubble(speaker, responseMessage, "speaking");
+    speakText(responseMessage, speaker.name);
     if (!fastMode) {
       await delay(2500);
     }
@@ -982,6 +998,7 @@ async function handleContractNegotiation(
     // Show their response if any
     if (result.response) {
       showThoughtBubble(target, result.response, "speaking");
+      speakText(result.response, target.name);
       if (!fastMode) {
         await delay(2500);
       }
@@ -1024,6 +1041,7 @@ async function handleContractNegotiation(
   // Show their response if any
   if (result.message) {
     showThoughtBubble(target, result.message, "speaking");
+    speakText(result.message, target.name);
     if (!fastMode) {
       await delay(2500);
     }
@@ -1303,6 +1321,7 @@ async function processTurn(): Promise<void> {
         }
 
         showThoughtBubble(current, action.message, "speaking");
+        speakText(action.message, current.name);
         if (!fastMode) {
           await delay(2500);
         }
@@ -1337,6 +1356,16 @@ async function processTurn(): Promise<void> {
           action.contractContents &&
           action.contractExpiry
         ) {
+          // Speak the pitch if provided
+          if (action.message) {
+            showThoughtBubble(current, action.message, "speaking");
+            speakText(action.message, current.name);
+            if (!fastMode) {
+              await delay(2500);
+            }
+            hideThoughtBubble();
+          }
+
           const { signed, response } = await handleContractNegotiation(
             current,
             target,
@@ -1925,6 +1954,7 @@ async function executePlayerTalk(): Promise<void> {
   if (result.success) {
     // Show speech bubble
     showThoughtBubble(current, message, "speaking");
+    speakText(message, current.name);
     if (!fastMode) {
       await delay(2500);
     }
@@ -2337,6 +2367,7 @@ function showApiKeyPrompt(): void {
   const key = localStorage.getItem("openai_api_key");
   if (key) {
     initializeAgent(key);
+    initializeSpeech(key);
     return;
   }
 
@@ -2345,6 +2376,7 @@ function showApiKeyPrompt(): void {
   if (envKey) {
     localStorage.setItem("openai_api_key", envKey);
     initializeAgent(envKey);
+    initializeSpeech(envKey);
     return;
   }
 
@@ -2411,6 +2443,7 @@ function showApiKeyPrompt(): void {
     if (apiKey) {
       localStorage.setItem("openai_api_key", apiKey);
       initializeAgent(apiKey);
+      initializeSpeech(apiKey);
     }
     modal.remove();
   });
@@ -2421,7 +2454,7 @@ function showApiKeyPrompt(): void {
 }
 
 function init(): void {
-  world = createCageMap(); // Options: createBloodsportMap(), createCageMap()
+  world = createBloodsportMap(); // Options: createBloodsportMap(), createCageMap()
 
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;

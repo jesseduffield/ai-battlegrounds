@@ -88,9 +88,15 @@ let floatingTexts: FloatingText[] = [];
 let movingCharacters: Map<string, MovingCharacter> = new Map();
 let characterIndexMap: Map<string, number> = new Map();
 
-// Thinking state (kept for potential future canvas-based thinking indicator)
-export function setThinkingCharacter(_characterId: string | null): void {
-  // Currently handled by HTML UI indicator
+let thinkingCharacterId: string | null = null;
+let speakingCharacterId: string | null = null;
+
+export function setThinkingCharacter(characterId: string | null): void {
+  thinkingCharacterId = characterId;
+}
+
+export function setSpeakingCharacter(characterId: string | null): void {
+  speakingCharacterId = characterId;
 }
 
 export function addFloatingText(
@@ -290,96 +296,369 @@ function drawCharacter(
 
   const colors = character.alive
     ? getCharacterColor(character, index)
-    : { body: COLORS.characterDead, accent: COLORS.characterDead };
-
-  ctx.beginPath();
-  ctx.arc(px, py - 4, 8, 0, Math.PI * 2);
-  ctx.fillStyle = colors.body;
-  ctx.fill();
-  ctx.strokeStyle = COLORS.characterOutline;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.arc(px, py - 4, 8, -Math.PI * 0.3, Math.PI * 0.3);
-  ctx.strokeStyle = colors.accent;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+    : { body: "#4a3535", accent: "#3a2525" };
 
   if (character.alive) {
-    // Body - scaled to fit in tile
-    ctx.beginPath();
-    ctx.moveTo(px, py + 2);
-    ctx.lineTo(px, py + 10);
-    // Arms
-    ctx.moveTo(px - 5, py + 5);
-    ctx.lineTo(px + 5, py + 5);
-    // Legs
-    ctx.moveTo(px, py + 10);
-    ctx.lineTo(px - 3, py + 14);
-    ctx.moveTo(px, py + 10);
-    ctx.lineTo(px + 3, py + 14);
-    ctx.strokeStyle = colors.body;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    if (character.equippedWeapon) {
-      ctx.beginPath();
-      ctx.moveTo(px + 5, py + 5);
-      ctx.lineTo(px + 11, py);
-      ctx.strokeStyle = colors.accent;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.strokeStyle = COLORS.weapon;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
+    drawAliveCharacter(ctx, px, py, colors, character);
   } else {
-    ctx.font = "14px serif";
-    ctx.fillStyle = "#888";
-    ctx.textAlign = "center";
-    ctx.fillText("†", px, py + 10);
+    drawDeadCharacter(ctx, px, py, colors);
   }
 
-  // Draw health bar above character
   if (character.alive) {
-    const barWidth = 20;
-    const barHeight = 4;
+    const barWidth = 22;
+    const barHeight = 3;
     const barX = px - barWidth / 2;
-    const barY = py - 18;
+    const barY = py - 14;
     const healthPercent = character.hp / character.maxHp;
 
-    // Background (dark red)
-    ctx.fillStyle = "#4a1a1a";
-    ctx.fillRect(barX, barY, barWidth, barHeight);
+    ctx.fillStyle = "#1a0a0a";
+    ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
 
-    // Health fill (green to yellow to red based on health)
-    let healthColor: string;
+    const gradient = ctx.createLinearGradient(
+      barX,
+      barY,
+      barX,
+      barY + barHeight
+    );
     if (healthPercent > 0.6) {
-      healthColor = "#4ade80"; // Green
+      gradient.addColorStop(0, "#6be875");
+      gradient.addColorStop(1, "#3cb44a");
     } else if (healthPercent > 0.3) {
-      healthColor = "#facc15"; // Yellow
+      gradient.addColorStop(0, "#fcd34d");
+      gradient.addColorStop(1, "#d97706");
     } else {
-      healthColor = "#ef4444"; // Red
+      gradient.addColorStop(0, "#f87171");
+      gradient.addColorStop(1, "#b91c1c");
     }
-    ctx.fillStyle = healthColor;
+    ctx.fillStyle = gradient;
     ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
 
-    // Border
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(barX, barY, barWidth, barHeight);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.fillRect(barX, barY, barWidth * healthPercent, 1);
   }
 
-  ctx.font = "bold 10px JetBrains Mono, monospace";
+  ctx.font = "bold 8px JetBrains Mono, monospace";
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.shadowColor = "#000";
-  ctx.shadowBlur = 3;
-  ctx.fillText(character.name.charAt(0), px, py - 1);
+  ctx.shadowBlur = 2;
+  ctx.shadowOffsetX = 1;
+  ctx.shadowOffsetY = 1;
+  ctx.fillText(character.name, px, py - 20);
   ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+
+  // Draw thinking or speaking bubble icon
+  if (character.alive) {
+    if (thinkingCharacterId === character.id) {
+      drawThoughtBubbleIcon(ctx, px + 12, py - 16);
+    } else if (speakingCharacterId === character.id) {
+      drawSpeechBubbleIcon(ctx, px + 12, py - 16);
+    }
+  }
 
   characterIndexMap.set(character.id, index);
+}
+
+function drawThoughtBubbleIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number
+): void {
+  ctx.save();
+
+  // Main bubble
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#666";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(x, y, 8, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Thought dots (trailing circles)
+  ctx.beginPath();
+  ctx.arc(x - 6, y + 6, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x - 9, y + 9, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Three dots inside bubble
+  ctx.fillStyle = "#666";
+  ctx.beginPath();
+  ctx.arc(x - 3, y, 1.2, 0, Math.PI * 2);
+  ctx.arc(x, y, 1.2, 0, Math.PI * 2);
+  ctx.arc(x + 3, y, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawSpeechBubbleIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number
+): void {
+  ctx.save();
+
+  // Main bubble
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(x, y, 8, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Speech tail (pointed triangle)
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y + 4);
+  ctx.lineTo(x - 8, y + 10);
+  ctx.lineTo(x - 1, y + 5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Three lines inside bubble (speech lines)
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y - 1);
+  ctx.lineTo(x + 4, y - 1);
+  ctx.moveTo(x - 4, y + 2);
+  ctx.lineTo(x + 2, y + 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawAliveCharacter(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  colors: { body: string; accent: string },
+  character: Character
+): void {
+  const bodyGradient = ctx.createLinearGradient(px - 6, py, px + 6, py);
+  bodyGradient.addColorStop(0, shadeColor(colors.body, -20));
+  bodyGradient.addColorStop(0.5, colors.body);
+  bodyGradient.addColorStop(1, shadeColor(colors.body, -30));
+
+  ctx.fillStyle = shadeColor(colors.body, -40);
+  ctx.beginPath();
+  ctx.ellipse(px, py + 13, 5, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = bodyGradient;
+  ctx.beginPath();
+  ctx.moveTo(px - 5, py + 1);
+  ctx.lineTo(px + 5, py + 1);
+  ctx.lineTo(px + 6, py + 10);
+  ctx.lineTo(px - 6, py + 10);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = shadeColor(colors.body, -40);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = colors.accent;
+  ctx.fillRect(px - 4, py + 1, 8, 2);
+
+  ctx.fillStyle = shadeColor(colors.body, -10);
+  ctx.beginPath();
+  ctx.moveTo(px - 5, py + 10);
+  ctx.lineTo(px - 3, py + 10);
+  ctx.lineTo(px - 4, py + 14);
+  ctx.lineTo(px - 6, py + 14);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(px + 5, py + 10);
+  ctx.lineTo(px + 3, py + 10);
+  ctx.lineTo(px + 4, py + 14);
+  ctx.lineTo(px + 6, py + 14);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(px - 6, py + 13, 4, 2);
+  ctx.fillRect(px + 2, py + 13, 4, 2);
+
+  const skinTone = "#e8c4a0";
+  const skinShadow = "#c9a080";
+
+  ctx.fillStyle = skinTone;
+  ctx.beginPath();
+  ctx.arc(px - 8, py + 5, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = skinShadow;
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(px - 6, py + 2);
+  ctx.lineTo(px - 8, py + 5);
+  ctx.stroke();
+
+  if (character.equippedWeapon) {
+    ctx.beginPath();
+    ctx.moveTo(px + 6, py + 2);
+    ctx.lineTo(px + 9, py + 4);
+    ctx.stroke();
+    drawWeapon(ctx, px + 9, py + 4, colors.accent);
+  } else {
+    ctx.fillStyle = skinTone;
+    ctx.beginPath();
+    ctx.arc(px + 8, py + 5, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = skinShadow;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(px + 6, py + 2);
+    ctx.lineTo(px + 8, py + 5);
+    ctx.stroke();
+  }
+
+  const headGradient = ctx.createRadialGradient(
+    px - 2,
+    py - 5,
+    0,
+    px,
+    py - 3,
+    8
+  );
+  headGradient.addColorStop(0, colors.accent);
+  headGradient.addColorStop(0.7, colors.body);
+  headGradient.addColorStop(1, shadeColor(colors.body, -30));
+
+  ctx.fillStyle = headGradient;
+  ctx.beginPath();
+  ctx.ellipse(px, py - 3, 7, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = shadeColor(colors.body, -40);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(px - 2, py - 4, 1.5, 0, Math.PI * 2);
+  ctx.arc(px + 2, py - 4, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#111";
+  ctx.beginPath();
+  ctx.arc(px - 2, py - 4, 0.8, 0, Math.PI * 2);
+  ctx.arc(px + 2, py - 4, 0.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.beginPath();
+  ctx.arc(px - 2.5, py - 4.5, 0.4, 0, Math.PI * 2);
+  ctx.arc(px + 1.5, py - 4.5, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDeadCharacter(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  colors: { body: string; accent: string }
+): void {
+  ctx.fillStyle = "rgba(80, 20, 20, 0.4)";
+  ctx.beginPath();
+  ctx.ellipse(px, py + 8, 10, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(px, py + 4);
+  ctx.rotate(Math.PI / 2);
+
+  ctx.fillStyle = colors.body;
+  ctx.beginPath();
+  ctx.moveTo(-5, -5);
+  ctx.lineTo(5, -5);
+  ctx.lineTo(6, 4);
+  ctx.lineTo(-6, 4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = colors.body;
+  ctx.beginPath();
+  ctx.ellipse(0, -8, 5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  ctx.strokeStyle = "#5a2020";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(px - 3, py);
+  ctx.lineTo(px - 1, py + 2);
+  ctx.lineTo(px + 1, py);
+  ctx.lineTo(px + 3, py + 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "#8b0000";
+  ctx.globalAlpha = 0.6;
+  ctx.beginPath();
+  ctx.ellipse(px + 5, py + 6, 4, 2, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function drawWeapon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  accentColor: string
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.PI / 4);
+
+  const bladeGradient = ctx.createLinearGradient(0, -10, 3, -10);
+  bladeGradient.addColorStop(0, "#a0a0a0");
+  bladeGradient.addColorStop(0.5, "#e0e0e0");
+  bladeGradient.addColorStop(1, "#808080");
+
+  ctx.fillStyle = bladeGradient;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(2, 0);
+  ctx.lineTo(2, -8);
+  ctx.lineTo(1, -10);
+  ctx.lineTo(0, -8);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#505050";
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+
+  ctx.fillStyle = accentColor;
+  ctx.fillRect(-1, 0, 4, 2);
+
+  ctx.fillStyle = "#4a3020";
+  ctx.fillRect(0, 2, 2, 4);
+
+  ctx.restore();
+}
+
+function shadeColor(color: string, percent: number): string {
+  const num = parseInt(color.replace("#", ""), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+  const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00ff) + amt));
+  const B = Math.max(0, Math.min(255, (num & 0x0000ff) + amt));
+  return `#${((1 << 24) | (R << 16) | (G << 8) | B).toString(16).slice(1)}`;
 }
 
 function drawTrap(ctx: CanvasRenderingContext2D, x: number, y: number): void {
