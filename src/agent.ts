@@ -14,7 +14,7 @@ import {
 } from "./engine";
 import OpenAI from "openai";
 
-const MAX_COMPLETION_TOKENS = 2000;
+const MAX_COMPLETION_TOKENS = 10_000;
 
 let openai: OpenAI | null = null;
 
@@ -1044,7 +1044,7 @@ What do you do?`;
         json_schema: actionResponseSchema,
       },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "medium",
+      reasoning_effort: "high",
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1156,7 +1156,7 @@ Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
         json_schema: contractNegotiationSchema,
       },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "medium",
+      reasoning_effort: "high",
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1244,7 +1244,7 @@ How do you respond?`;
         json_schema: conversationResponseSchema,
       },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "medium",
+      reasoning_effort: "high",
     });
 
     const content = response.choices[0]?.message?.content ?? "{}";
@@ -1345,7 +1345,7 @@ If a party died during the contract period, they cannot be a violator (death rel
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "medium",
+      reasoning_effort: "high",
     });
 
     const content = response.choices[0]?.message?.content;
