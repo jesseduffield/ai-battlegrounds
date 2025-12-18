@@ -881,6 +881,7 @@ export async function getAgentDecision(
 ): Promise<{
   action: Action;
   reasoning: string | null; // kept as "reasoning" externally for compatibility
+  reasoningSummary?: string; // model's internal reasoning summary
   fullPrompt?: string;
   fullResponse?: string;
   error?: string;
@@ -1071,21 +1072,39 @@ ${situationDescription}
 What do you do?`;
 
   try {
-    const response = await openai.chat.completions.create({
+    const response = await openai.responses.create({
       model: "gpt-5.2",
-      messages: [
+      input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: actionResponseSchema,
+      text: {
+        format: {
+          type: "json_schema",
+          ...actionResponseSchema,
+        },
       },
-      max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: "low",
+      max_output_tokens: MAX_COMPLETION_TOKENS,
+      reasoning: {
+        effort: "low",
+      },
     });
 
-    const content = response.choices[0]?.message?.content ?? "{}";
+    // Extract reasoning summary from output
+    let reasoningSummary: string | undefined;
+    let content = "{}";
+    for (const item of response.output) {
+      if (item.type === "reasoning" && item.summary?.length > 0) {
+        reasoningSummary = item.summary.map((s) => s.text).join("\n");
+      }
+      if (item.type === "message") {
+        const textContent = item.content?.find((c) => c.type === "output_text");
+        if (textContent && "text" in textContent) {
+          content = textContent.text;
+        }
+      }
+    }
+
     const fullPrompt = `SYSTEM:\n${systemPrompt}\n\nUSER:\n${userPrompt}`;
 
     let jsonResponse: JsonResponse;
@@ -1096,6 +1115,7 @@ What do you do?`;
       return {
         action: { type: "wait" },
         reasoning: `(Failed to parse JSON: ${content})`,
+        reasoningSummary,
         fullPrompt,
         fullResponse: content,
         error: "Invalid JSON response from AI",
@@ -1118,6 +1138,7 @@ What do you do?`;
       return {
         action: { type: "wait" },
         reasoning: jsonResponse.thought || "(No valid action)",
+        reasoningSummary,
         fullPrompt,
         fullResponse: content,
         error: error || "No valid action in response",
@@ -1127,6 +1148,7 @@ What do you do?`;
     return {
       action,
       reasoning: jsonResponse.thought, // "thought" in JSON, "reasoning" externally
+      reasoningSummary,
       fullPrompt,
       fullResponse: content,
       error: error || undefined,

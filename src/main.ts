@@ -386,7 +386,8 @@ function addReasoningEntry(
   reasoning: string | null,
   fullPrompt?: string,
   fullResponse?: string,
-  errors?: string[]
+  errors?: string[],
+  reasoningSummary?: string
 ): void {
   if (reasoning) {
     pushEvent({
@@ -426,6 +427,17 @@ function addReasoningEntry(
           .join(", ")}</div>`
       : "";
 
+  const reasoningSummaryHtml = reasoningSummary
+    ? `
+    <details style="margin-top: 8px; font-size: 11px;">
+      <summary style="cursor: pointer; color: #9b59b6;">🧠 Model's Internal Reasoning</summary>
+      <div style="margin-top: 8px; padding: 8px; background: #1a1a2e; border-radius: 4px; white-space: pre-wrap; font-family: monospace; max-height: 200px; overflow-y: auto; color: #b39ddb; border-left: 3px solid #9b59b6;">
+        ${escapeHtml(reasoningSummary)}
+      </div>
+    </details>
+  `
+    : "";
+
   const promptHtml =
     fullPrompt && fullResponse
       ? `
@@ -445,6 +457,7 @@ function addReasoningEntry(
     <div class="log-turn">Turn ${world.turn} — ${character.name}'s thinking</div>
     <div style="color: #888; font-style: italic;">"${reasoning}"</div>
     ${errorHtml}
+    ${reasoningSummaryHtml}
     ${promptHtml}
   `;
 
@@ -1094,8 +1107,14 @@ async function processTurn(): Promise<void> {
       setThinkingCharacter(current.id);
       renderWorld();
 
-      const { action, reasoning, fullPrompt, fullResponse, error } =
-        await getAgentDecision(world, current, turnHistory);
+      const {
+        action,
+        reasoning,
+        reasoningSummary,
+        fullPrompt,
+        fullResponse,
+        error,
+      } = await getAgentDecision(world, current, turnHistory);
 
       setThinkingCharacter(null);
 
@@ -1112,7 +1131,8 @@ async function processTurn(): Promise<void> {
         reasoning,
         fullPrompt,
         fullResponse,
-        error ? [error] : undefined
+        error ? [error] : undefined,
+        reasoningSummary
       );
 
       // If the agent had a parsing error, retry with that error as feedback
