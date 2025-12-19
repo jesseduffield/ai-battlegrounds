@@ -1,4 +1,11 @@
-import type { World, Character, Position, TileType, Item } from "./types";
+import type {
+  World,
+  Character,
+  Position,
+  TileType,
+  Item,
+  Feature,
+} from "./types";
 
 export const TILE_SIZE = 32;
 
@@ -222,16 +229,15 @@ function drawTile(
       ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
       break;
 
-    case "door":
-      ctx.fillStyle = COLORS.ground;
+    case "water":
+      ctx.fillStyle = "#2a4a6a";
       ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = COLORS.doorFrame;
-      ctx.fillRect(px, py, 4, TILE_SIZE);
-      ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
-      ctx.fillStyle = COLORS.door;
-      ctx.fillRect(px + 4, py + 2, TILE_SIZE - 8, TILE_SIZE - 4);
-      ctx.fillStyle = "#8a6a3a";
-      ctx.fillRect(px + TILE_SIZE - 10, py + TILE_SIZE / 2 - 2, 3, 4);
+      ctx.fillStyle = "#3a5a7a";
+      for (let i = 0; i < 3; i++) {
+        const dx = ((x * 7 + i * 13) % 20) + 6;
+        const dy = ((y * 11 + i * 17) % 20) + 6;
+        ctx.fillRect(px + dx, py + dy, 4, 2);
+      }
       break;
 
     case "grass":
@@ -259,18 +265,62 @@ function drawTile(
       ctx.fillRect(px, py + 2, TILE_SIZE, 2);
       ctx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 2);
       break;
+  }
+}
 
-    case "blue_door":
-      // Draw door frame
-      ctx.fillStyle = COLORS.blueDoorFrame;
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      // Draw door panel
-      ctx.fillStyle = COLORS.blueDoor;
-      ctx.fillRect(px + 4, py + 2, TILE_SIZE - 8, TILE_SIZE - 4);
-      // Draw lock symbol
-      ctx.fillStyle = "#ffd700";
-      ctx.fillRect(px + TILE_SIZE / 2 - 3, py + TILE_SIZE / 2 - 2, 6, 4);
-      ctx.fillRect(px + TILE_SIZE / 2 - 2, py + TILE_SIZE / 2 - 5, 4, 3);
+function drawFeature(
+  ctx: CanvasRenderingContext2D,
+  feature: Feature,
+  x: number,
+  y: number
+): void {
+  const px = x * TILE_SIZE;
+  const py = y * TILE_SIZE;
+
+  switch (feature.type) {
+    case "door":
+      if (feature.open) {
+        // Open door - just show door frame
+        ctx.fillStyle = COLORS.doorFrame;
+        ctx.fillRect(px, py, 4, TILE_SIZE);
+        ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
+      } else {
+        // Closed door
+        ctx.fillStyle = COLORS.doorFrame;
+        ctx.fillRect(px, py, 4, TILE_SIZE);
+        ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
+        ctx.fillStyle = feature.locked ? COLORS.blueDoor : COLORS.door;
+        ctx.fillRect(px + 4, py + 2, TILE_SIZE - 8, TILE_SIZE - 4);
+        if (feature.locked) {
+          // Draw lock symbol
+          ctx.fillStyle = "#ffd700";
+          ctx.fillRect(px + TILE_SIZE / 2 - 3, py + TILE_SIZE / 2 - 2, 6, 4);
+          ctx.fillRect(px + TILE_SIZE / 2 - 2, py + TILE_SIZE / 2 - 5, 4, 3);
+        } else {
+          // Door handle
+          ctx.fillStyle = "#8a6a3a";
+          ctx.fillRect(px + TILE_SIZE - 10, py + TILE_SIZE / 2 - 2, 3, 4);
+        }
+      }
+      break;
+
+    case "chest":
+      // Draw chest
+      ctx.fillStyle = feature.searched
+        ? COLORS.containerSearched
+        : COLORS.container;
+      ctx.fillRect(px + 4, py + 8, TILE_SIZE - 8, TILE_SIZE - 12);
+      // Chest lid
+      ctx.fillStyle = feature.searched ? "#4a3a1a" : "#5a4a2a";
+      ctx.fillRect(px + 2, py + 6, TILE_SIZE - 4, 6);
+      // Chest lock/clasp
+      ctx.fillStyle = "#8a7a4a";
+      ctx.fillRect(px + TILE_SIZE / 2 - 2, py + 10, 4, 3);
+      break;
+
+    case "trap":
+      // Don't draw traps - they're invisible to players!
+      // Traps are only visible to their owner (handled elsewhere)
       break;
   }
 }
@@ -702,37 +752,10 @@ function drawItem(
 
   let color = COLORS.item;
   if (item.type === "weapon") color = COLORS.weapon;
-  if (item.type === "container")
-    color = item.searched ? COLORS.containerSearched : COLORS.container;
 
   ctx.fillStyle = color;
 
-  if (item.type === "container") {
-    // Center the container in the tile
-    const centerX = x * TILE_SIZE + TILE_SIZE / 2;
-    const centerY = y * TILE_SIZE + TILE_SIZE / 2;
-    const boxWidth = 20;
-    const boxHeight = 14;
-
-    // Main body
-    ctx.fillRect(
-      centerX - boxWidth / 2,
-      centerY - boxHeight / 2 + 2,
-      boxWidth,
-      boxHeight
-    );
-    // Lid highlight
-    ctx.fillStyle = item.searched ? "#4a3a2a" : "#8a6a4a";
-    ctx.fillRect(
-      centerX - boxWidth / 2 + 1,
-      centerY - boxHeight / 2 + 2,
-      boxWidth - 2,
-      4
-    );
-    // Clasp
-    ctx.fillStyle = "#aa8855";
-    ctx.fillRect(centerX - 2, centerY - boxHeight / 2 + 5, 4, 3);
-  } else if (item.type === "weapon") {
+  if (item.type === "weapon") {
     ctx.beginPath();
     ctx.moveTo(px + 2, py + 10);
     ctx.lineTo(px + 10, py + 2);
@@ -796,6 +819,9 @@ export function render(
     for (let x = 0; x < world.width; x++) {
       const tile = world.tiles[y][x];
       drawTile(ctx, tile.type, x, y);
+      if (tile.feature) {
+        drawFeature(ctx, tile.feature, x, y);
+      }
     }
   }
 
@@ -830,12 +856,13 @@ export function render(
         drawItem(ctx, item, x, y, index);
       });
 
-      if (tile.traps && currentCharacterId) {
-        for (const trap of tile.traps) {
-          if (trap.ownerId === currentCharacterId) {
-            drawTrap(ctx, x, y);
-          }
-        }
+      // Draw trap if owned by current player (traps are invisible to others)
+      if (
+        tile.feature?.type === "trap" &&
+        currentCharacterId &&
+        tile.feature.ownerId === currentCharacterId
+      ) {
+        drawTrap(ctx, x, y);
       }
     }
   }

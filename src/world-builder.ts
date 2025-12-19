@@ -1,9 +1,43 @@
-import type { World, Tile, Character, Item, Room } from "./types";
+import type {
+  World,
+  Tile,
+  Character,
+  Item,
+  Room,
+  Feature,
+  ChestFeature,
+  DoorFeature,
+} from "./types";
 import { createId, initializeCharacterMemory } from "./engine";
 import { DEFAULT_REASONING_EFFORT, DEFAULT_AI_MODEL } from "./agent";
 
-function createTile(type: Tile["type"]): Tile {
-  return { type, items: [], traps: [] };
+function createTile(type: Tile["type"], feature?: Feature): Tile {
+  return { type, items: [], feature };
+}
+
+function createChest(name: string, contents: Item[]): ChestFeature {
+  return {
+    type: "chest",
+    id: createId(),
+    name,
+    searched: false,
+    contents,
+  };
+}
+
+function createDoor(
+  name: string,
+  locked: boolean,
+  keyId?: string
+): DoorFeature {
+  return {
+    type: "door",
+    id: createId(),
+    name,
+    locked,
+    open: false,
+    keyId,
+  };
 }
 
 function createItem(
@@ -113,36 +147,27 @@ export function createTownMap(): World {
   const hunterKnife1 = createItem("Hunting Knife", "weapon", { damage: 5 });
   const hunterKnife2 = createItem("Serrated Blade", "weapon", { damage: 5 });
 
-  // Create bear traps in containers for the prey to find
+  // Create bear traps in chests for the prey to find
   const bearTrap1 = createItem("Bear Trap", "trap", {
     trapDamage: 3,
     trapAttackDebuff: 2,
     trapDebuffDuration: 5,
   });
-  const trapBox1 = createItem("Supply Crate", "container", {
-    contents: [bearTrap1],
-  });
-  tiles[7][13].items.push(trapBox1);
+  tiles[7][13].feature = createChest("Supply Crate", [bearTrap1]);
 
   const bearTrap2 = createItem("Bear Trap", "trap", {
     trapDamage: 3,
     trapAttackDebuff: 2,
     trapDebuffDuration: 5,
   });
-  const trapBox2 = createItem("Tool Box", "container", {
-    contents: [bearTrap2],
-  });
-  tiles[5][16].items.push(trapBox2);
+  tiles[5][16].feature = createChest("Tool Box", [bearTrap2]);
 
   const bearTrap3 = createItem("Bear Trap", "trap", {
     trapDamage: 3,
     trapAttackDebuff: 2,
     trapDebuffDuration: 5,
   });
-  const trapBox3 = createItem("Old Chest", "container", {
-    contents: [bearTrap3],
-  });
-  tiles[9][14].items.push(trapBox3);
+  tiles[9][14].feature = createChest("Old Chest", [bearTrap3]);
 
   const characters: Character[] = [
     // Hunter 1 - top left
@@ -417,11 +442,17 @@ export function createCageMap(): World {
       tiles[y][x].roomId = cageId;
     }
   }
+  // Create the blue key first so we can reference its unlock target
+  const blueDoor = createDoor("Blue Door", true);
+
   // Blue door to enter/exit cage (on the right side of cage)
-  tiles[7][6] = createTile("blue_door");
+  tiles[7][6] = createTile("ground", blueDoor);
+  tiles[7][6].roomId = cageId;
 
   // Create items
-  const blueKey = createItem("Blue Key", "key");
+  const blueKey = createItem("Blue Key", "key", {
+    unlocksFeatureId: blueDoor.id,
+  });
   const knife = createItem("Rusty Knife", "weapon", { damage: 2 });
   const executionerAxe = createItem("Executioner's Axe", "weapon", {
     damage: 8,

@@ -5,27 +5,42 @@ export type Position = {
   y: number;
 };
 
-export type TileType =
-  | "ground"
-  | "wall"
-  | "door"
-  | "grass"
-  | "bars"
-  | "blue_door";
+export type TileType = "ground" | "wall" | "grass" | "bars" | "water";
 
-export type PlacedTrap = {
+export type TrapFeature = {
+  type: "trap";
   id: string;
   name: string;
   ownerId: string;
   damage: number;
   attackDebuff: number;
   debuffDuration: number;
+  triggered: boolean;
 };
+
+export type DoorFeature = {
+  type: "door";
+  id: string;
+  name: string;
+  locked: boolean;
+  open: boolean;
+  keyId?: string;
+};
+
+export type ChestFeature = {
+  type: "chest";
+  id: string;
+  name: string;
+  searched: boolean;
+  contents: Item[];
+};
+
+export type Feature = TrapFeature | DoorFeature | ChestFeature;
 
 export type Tile = {
   type: TileType;
   items: Item[];
-  traps: PlacedTrap[];
+  feature?: Feature;
   roomId?: string;
 };
 
@@ -33,7 +48,6 @@ export type ItemType =
   | "weapon"
   | "clothing"
   | "consumable"
-  | "container"
   | "trap"
   | "contract"
   | "key"
@@ -57,12 +71,11 @@ export type Item = {
   type: ItemType;
   damage?: number;
   armor?: number;
-  contents?: Item[];
-  searched?: boolean;
   trapDamage?: number;
   trapAttackDebuff?: number;
   trapDebuffDuration?: number;
   contract?: BloodContract;
+  unlocksFeatureId?: string;
 };
 
 export type TileMemory = {
@@ -71,6 +84,7 @@ export type TileMemory = {
   items?: string[];
   characterName?: string;
   characterAlive?: boolean;
+  feature?: { type: Feature["type"]; name: string };
 };
 
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
@@ -124,7 +138,7 @@ export type LookAroundAction = {
 
 export type SearchContainerAction = {
   type: "search_container";
-  targetItemId: string;
+  targetFeatureId: string;
 };
 
 export type PickUpAction = {
@@ -182,7 +196,7 @@ export type DeclineContractAction = {
 
 export type UnlockAction = {
   type: "unlock";
-  targetDoorName: string;
+  targetFeatureId: string;
 };
 
 export type WaitAction = {

@@ -51,6 +51,33 @@
       text-shadow: 2px 2px 0 rgba(255, 204, 68, 0.3);
     }
 
+    .map-selector {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .map-selector select {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg-panel-light);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 0.5rem 0.75rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .map-selector select:hover {
+      border-color: var(--accent-blue);
+    }
+
+    .map-selector button {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+      flex: none;
+    }
+
     .turn-info {
       display: flex;
       align-items: center;
@@ -540,6 +567,14 @@
 <body>
   <header>
     <h1>⚔️ AILand</h1>
+    <div class="map-selector">
+      <select id="map-select">
+        <option value="town">🏘️ Town</option>
+        <option value="bloodsport">⚔️ Bloodsport Arena</option>
+        <option value="cage">🔒 Cage Match</option>
+      </select>
+      <button id="restart-btn">🔄 Restart</button>
+    </div>
     <div class="turn-info">
       <div class="turn-badge">Turn: <span id="turn-number">1</span></div>
       <div class="turn-badge">Acting: <span id="current-actor">—</span></div>

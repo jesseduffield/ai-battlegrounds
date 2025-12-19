@@ -56,7 +56,7 @@ export async function speakText(
       model: "tts-1",
       voice: voice,
       input: text,
-      speed: 2.0,
+      speed: 1.5,
     });
 
     const blob = await response.blob();

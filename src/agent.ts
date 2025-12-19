@@ -6,6 +6,7 @@ import type {
   Position,
   BloodContract,
   GameEvent,
+  Feature,
 } from "./types";
 import {
   getCharacterKnowledge,
@@ -15,8 +16,8 @@ import {
 import OpenAI from "openai";
 
 const MAX_COMPLETION_TOKENS = 10_000;
-export const DEFAULT_AI_MODEL = "gpt-5.2";
-export const DEFAULT_REASONING_EFFORT = "high" as const;
+export const DEFAULT_AI_MODEL = "gpt-4.1";
+export const DEFAULT_REASONING_EFFORT = "none" as const;
 
 let openai: OpenAI | null = null;
 
@@ -39,6 +40,19 @@ function manhattanDistance(a: Position, b: Position): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
+// Chebyshev distance - diagonals count as 1 step
+function chebyshevDistance(a: Position, b: Position): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+function isAdjacent(a: Position, b: Position): boolean {
+  return chebyshevDistance(a, b) <= 1;
+}
+
+function positionsEqual(a: Position, b: Position): boolean {
+  return a.x === b.x && a.y === b.y;
+}
+
 function findTargetPosition(
   targetName: string,
   knowledge: CharacterKnowledge,
@@ -53,13 +67,20 @@ function findTargetPosition(
     }
   }
 
-  // Check visible items (including container contents)
+  // Check visible items
   for (const { item, position } of knowledge.visible.items) {
     if (item.name.toLowerCase().includes(nameLower)) {
       return position;
     }
-    if (item.type === "container" && item.contents) {
-      for (const content of item.contents) {
+  }
+
+  // Check visible chest contents
+  for (const { position } of knowledge.visible.tiles) {
+    const tile = knowledge.visible.tiles.find(
+      (t) => t.position.x === position.x && t.position.y === position.y
+    );
+    if (tile?.feature?.type === "chest" && tile.feature.searched) {
+      for (const content of tile.feature.contents) {
         if (content.name.toLowerCase().includes(nameLower)) {
           return position;
         }
@@ -135,10 +156,12 @@ function generateOmniscientMap(world: World): string {
         row += "#";
       } else if (tile.type === "bars") {
         row += "|";
-      } else if (tile.type === "blue_door") {
-        row += "D";
-      } else if (tile.type === "door") {
-        row += "+";
+      } else if (tile.feature?.type === "door" && !tile.feature.open) {
+        row += tile.feature.locked ? "D" : "+";
+      } else if (tile.feature?.type === "chest") {
+        row += "C";
+      } else if (tile.feature?.type === "trap") {
+        row += "^";
       } else if (tile.items.length > 0) {
         row += "*";
       } else {
@@ -189,8 +212,15 @@ function generateAsciiMap(world: World, character: Character): string {
       const key = `${x},${y}`;
       const memory = character.mapMemory.get(key);
 
+      // Check for own traps on this tile (traps are visible to owner)
+      const tile = world.tiles[y]?.[x];
+      const ownTrap =
+        tile?.feature?.type === "trap" && tile.feature.ownerId === character.id;
+
       if (x === character.position.x && y === character.position.y) {
         row += "@";
+      } else if (ownTrap) {
+        row += "^";
       } else if (memory) {
         if (memory.characterName && memory.characterAlive) {
           row += memory.characterName.charAt(0).toUpperCase();
@@ -198,10 +228,10 @@ function generateAsciiMap(world: World, character: Character): string {
           row += "#";
         } else if (memory.type === "bars") {
           row += "|";
-        } else if (memory.type === "blue_door") {
+        } else if (memory.feature?.type === "door") {
           row += "D";
-        } else if (memory.type === "door") {
-          row += "+";
+        } else if (memory.feature?.type === "chest") {
+          row += "C";
         } else if (memory.items && memory.items.length > 0) {
           row += "*";
         } else {
@@ -277,8 +307,8 @@ function formatKnowledge(
   lines.push(`\n=== ENEMIES ===`);
   if (livingEnemies.length > 0) {
     for (const { character: other, position } of livingEnemies) {
-      const dist = manhattanDistance(character.position, position);
-      const canAttack = dist === 1;
+      const dist = chebyshevDistance(character.position, position);
+      const canAttack = isAdjacent(character.position, position);
       const weapon = other.equippedWeapon
         ? `armed with ${other.equippedWeapon.name}`
         : "unarmed";
@@ -336,31 +366,15 @@ function formatKnowledge(
     }
   }
 
-  // Show all known objects
+  // Show all known objects (items)
   const allItems = knowledge.visible.items;
   if (allItems.length > 0) {
     lines.push(`\n=== KNOWN OBJECTS ===`);
     for (const { item, position } of allItems) {
-      const dist = manhattanDistance(pos, position);
-      const adjacent = dist <= 1;
+      const adjacent = isAdjacent(pos, position);
       let desc = `${item.name} at ${formatPosition(position)}`;
 
-      if (item.type === "container") {
-        if (item.searched) {
-          if (item.contents && item.contents.length > 0) {
-            desc += ` [searched, contains: ${item.contents
-              .map((c) => c.name)
-              .join(", ")}]`;
-            if (adjacent)
-              desc += ` - can PICKUP ${position.x} ${position.y} "ItemName"`;
-          } else {
-            desc += ` [searched, empty]`;
-          }
-        } else {
-          desc += ` [not searched]`;
-          if (adjacent) desc += ` - can SEARCH`;
-        }
-      } else if (item.type === "weapon") {
+      if (item.type === "weapon") {
         desc += ` [weapon, ${item.damage} damage]`;
         if (adjacent)
           desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
@@ -421,40 +435,57 @@ function formatKnowledge(
     lines.push(`  ${talkTargets}`);
   }
 
-  // Show special tiles like locked doors from memory
-  const specialTiles: { type: string; x: number; y: number; dist: number }[] =
-    [];
-  const hasKey = knowledge.status.inventory.some(
-    (i) => i.type === "key" && i.name.toLowerCase().includes("blue")
-  );
-  for (const [key, memory] of character.mapMemory) {
-    if (memory.type === "blue_door") {
-      const [x, y] = key.split(",").map(Number);
-      const dist = manhattanDistance(pos, { x, y });
-      specialTiles.push({ type: "Blue Door (locked)", x, y, dist });
+  // Show features from visible tiles (doors, chests)
+  const featureTiles: {
+    feature: Feature;
+    x: number;
+    y: number;
+    dist: number;
+  }[] = [];
+  for (const visibleTile of knowledge.visible.tiles) {
+    if (visibleTile.feature) {
+      const dist = chebyshevDistance(pos, visibleTile.position);
+      featureTiles.push({
+        feature: visibleTile.feature,
+        x: visibleTile.position.x,
+        y: visibleTile.position.y,
+        dist,
+      });
+    }
+  }
+
+  if (featureTiles.length > 0) {
+    lines.push(`\n=== FEATURES ===`);
+    for (const tile of featureTiles) {
+      const adjacent = tile.dist <= 1;
+      let desc = `  - ${tile.feature.name} at (${tile.x}, ${tile.y}) - distance: ${tile.dist}`;
+      if (tile.feature.type === "door") {
+        const hasMatchingKey = knowledge.status.inventory.some(
+          (i) => i.type === "key" && i.unlocksFeatureId === tile.feature.id
+        );
+        if (adjacent && hasMatchingKey) {
+          desc += ` *** ADJACENT - can UNLOCK ***`;
+        } else if (adjacent) {
+          desc += ` - ADJACENT but you need a key`;
+        } else if (hasMatchingKey) {
+          desc += ` - you have the key!`;
+        }
+      } else if (tile.feature.type === "chest") {
+        if (adjacent) {
+          desc += ` - can SEARCH${
+            tile.feature.searched ? " (already searched)" : ""
+          }`;
+        }
+      }
+      lines.push(desc);
     }
   }
 
   lines.push(`\n=== YOUR MAP (from memory) ===`);
   lines.push(
-    `Legend: @ = you, # = wall, | = bars, D = locked door, . = floor, * = item`
+    `Legend: @ = you, # = wall, | = bars, D = door, C = chest, ^ = your trap, . = floor, * = item`
   );
   lines.push(generateAsciiMap(world, character));
-
-  if (specialTiles.length > 0) {
-    lines.push(`\nLOCKED DOORS:`);
-    for (const tile of specialTiles) {
-      let desc = `  - ${tile.type} at (${tile.x}, ${tile.y}) - distance: ${tile.dist}`;
-      if (tile.dist === 1 && hasKey) {
-        desc += ` *** ADJACENT - can UNLOCK ${tile.x} ${tile.y} ***`;
-      } else if (tile.dist === 1) {
-        desc += ` - ADJACENT but you need a Blue Key`;
-      } else if (hasKey) {
-        desc += ` - you have the key!`;
-      }
-      lines.push(desc);
-    }
-  }
 
   return lines.join("\n");
 }
@@ -688,19 +719,25 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "SEARCH requires a target" };
       }
-      const container = knowledge.visible.items.find(
-        (i) =>
-          i.item.type === "container" &&
-          i.item.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      // Find chest feature on visible tiles
+      const chestTile = knowledge.visible.tiles.find(
+        (t) =>
+          t.feature?.type === "chest" &&
+          t.feature.name
+            .toLowerCase()
+            .includes(jsonResponse.target!.toLowerCase())
       );
-      if (!container) {
+      if (!chestTile || chestTile.feature?.type !== "chest") {
         return {
           action: null,
-          error: `SEARCH failed: Container "${jsonResponse.target}" not found`,
+          error: `SEARCH failed: Chest "${jsonResponse.target}" not found`,
         };
       }
       return {
-        action: { type: "search_container", targetItemId: container.item.id },
+        action: {
+          type: "search_container",
+          targetFeatureId: chestTile.feature.id,
+        },
         error: null,
       };
     }
@@ -845,10 +882,24 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "UNLOCK requires a door name" };
       }
+      // Find door feature on visible tiles
+      const doorTile = knowledge.visible.tiles.find(
+        (t) =>
+          t.feature?.type === "door" &&
+          t.feature.name
+            .toLowerCase()
+            .includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!doorTile || doorTile.feature?.type !== "door") {
+        return {
+          action: null,
+          error: `UNLOCK failed: Door "${jsonResponse.target}" not found`,
+        };
+      }
       return {
         action: {
           type: "unlock",
-          targetDoorName: jsonResponse.target,
+          targetFeatureId: doorTile.feature.id,
         },
         error: null,
       };
@@ -925,66 +976,83 @@ export async function getAgentDecision(
   // Build available actions list with crossed-out unavailable ones
   const moveAction = hasMoved
     ? "- [UNAVAILABLE] MOVE - YOU ALREADY MOVED THIS TURN. DO NOT USE MOVE."
-    : "- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates)";
+    : `- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates). You can move diagonally. You do not need to choose a tile adjacent to you: you can move up to ${character.movementRange} tiles.`;
 
-  // Build PICKUP action - list adjacent items that can be picked up
+  // Build PICKUP action - list adjacent items that can be picked up (8 directions)
   const adjacentPickupItems: { name: string; x: number; y: number }[] = [];
   for (const { item, position } of knowledge.visible.items) {
-    const dist = manhattanDistance(character.position, position);
-    if (dist === 1 && item.type !== "container") {
+    if (isAdjacent(character.position, position)) {
       adjacentPickupItems.push({
         name: item.name,
         x: position.x,
         y: position.y,
       });
-    } else if (
-      dist === 1 &&
-      item.type === "container" &&
-      item.searched &&
-      item.contents
+    }
+  }
+  // Also include items from searched chests
+  for (const tile of knowledge.visible.tiles) {
+    if (
+      isAdjacent(character.position, tile.position) &&
+      tile.feature?.type === "chest" &&
+      tile.feature.searched
     ) {
-      for (const content of item.contents) {
+      for (const content of tile.feature.contents) {
         adjacentPickupItems.push({
           name: content.name,
-          x: position.x,
-          y: position.y,
+          x: tile.position.x,
+          y: tile.position.y,
         });
       }
     }
   }
   const pickupAction =
     adjacentPickupItems.length > 0
-      ? `- PICKUP: Pick up adjacent item. Available: ${adjacentPickupItems
+      ? `- PICKUP: Pick up adjacent item (including diagonals). Available: ${adjacentPickupItems
           .map((i) => `"${i.name}" at (${i.x},${i.y})`)
           .join(", ")}`
       : "- [UNAVAILABLE] PICKUP - No items adjacent to pick up.";
 
-  // Build UNLOCK action - list adjacent locked doors if has key
-  const hasKey = knowledge.status.inventory.some((i) => i.type === "key");
-  const adjacentLockedDoors: { x: number; y: number }[] = [];
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      if (Math.abs(dx) + Math.abs(dy) !== 1) continue;
-      const nx = character.position.x + dx;
-      const ny = character.position.y + dy;
-      if (nx >= 0 && ny >= 0 && nx < world.width && ny < world.height) {
-        const tile = world.tiles[ny][nx];
-        if (tile.type === "blue_door") {
-          adjacentLockedDoors.push({ x: nx, y: ny });
-        }
-      }
+  // Build UNLOCK action - list adjacent locked doors if has matching key (8 directions)
+  const adjacentLockedDoors: {
+    x: number;
+    y: number;
+    name: string;
+    id: string;
+  }[] = [];
+  for (const tile of knowledge.visible.tiles) {
+    if (
+      isAdjacent(character.position, tile.position) &&
+      !positionsEqual(character.position, tile.position) &&
+      tile.feature?.type === "door" &&
+      tile.feature.locked &&
+      !tile.feature.open
+    ) {
+      adjacentLockedDoors.push({
+        x: tile.position.x,
+        y: tile.position.y,
+        name: tile.feature.name,
+        id: tile.feature.id,
+      });
     }
   }
+  const hasMatchingKey = (doorId: string) =>
+    knowledge.status.inventory.some(
+      (i) => i.type === "key" && i.unlocksFeatureId === doorId
+    );
   let unlockAction: string;
-  if (adjacentLockedDoors.length > 0 && hasKey) {
-    unlockAction = `- UNLOCK: Unlock adjacent door. Requires target (door name). Available: ${adjacentLockedDoors
-      .map((d) => `Blue Door (${d.x},${d.y})`)
+  const unlockabledDoors = adjacentLockedDoors.filter((d) =>
+    hasMatchingKey(d.id)
+  );
+  const hasAnyKey = knowledge.status.inventory.some((i) => i.type === "key");
+  if (unlockabledDoors.length > 0) {
+    unlockAction = `- UNLOCK: Unlock adjacent door. Requires target (door name). Available: ${unlockabledDoors
+      .map((d) => `"${d.name}" at (${d.x},${d.y})`)
       .join(", ")}`;
   } else if (adjacentLockedDoors.length > 0) {
     unlockAction = `- [UNAVAILABLE] UNLOCK - Adjacent door at ${adjacentLockedDoors
       .map((d) => `(${d.x},${d.y})`)
-      .join(", ")} but you need a key.`;
-  } else if (hasKey) {
+      .join(", ")} but you need the matching key.`;
+  } else if (hasAnyKey) {
     unlockAction =
       "- [UNAVAILABLE] UNLOCK - You have a key but no locked doors are adjacent.";
   } else {
@@ -1424,7 +1492,7 @@ ${allCharactersStatus}
 === ALL ITEMS ON MAP ===
 ${itemsList}
 
-=== MAP (Legend: # = wall, | = bars, D = locked door, . = floor, * = item, Letter = character) ===
+=== MAP (Legend: # = wall, | = bars, D = door, C = chest, ^ = trap, . = floor, * = item, Letter = character) ===
 ${asciiMap}
 
 Your task: Determine if either party violated the terms of the contract.
@@ -1454,7 +1522,10 @@ If a party died during the contract period, they cannot be a violator (death rel
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_completion_tokens: MAX_COMPLETION_TOKENS,
-      reasoning_effort: DEFAULT_REASONING_EFFORT,
+      reasoning_effort:
+        DEFAULT_REASONING_EFFORT === "none"
+          ? undefined
+          : DEFAULT_REASONING_EFFORT,
     });
 
     const content = response.choices[0]?.message?.content;

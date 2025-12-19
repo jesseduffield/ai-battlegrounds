@@ -1,4 +1,8 @@
-import { createTownMap } from "./world-builder";
+import {
+  createTownMap,
+  createBloodsportMap,
+  createCageMap,
+} from "./world-builder";
 import {
   render,
   getCanvasSize,
@@ -63,6 +67,66 @@ let playerControlledCharacter: string | null = null; // Character name or null f
 let awaitingPlayerAction = false;
 let eventOrderCounter = 0;
 let allAgentDecisions: AgentDecisionLog[] = [];
+
+type MapType = "town" | "bloodsport" | "cage";
+
+function createWorldFromSelection(mapType: MapType): World {
+  switch (mapType) {
+    case "bloodsport":
+      return createBloodsportMap();
+    case "cage":
+      return createCageMap();
+    case "town":
+    default:
+      return createTownMap();
+  }
+}
+
+function getSelectedMap(): MapType {
+  const select = document.getElementById("map-select") as HTMLSelectElement;
+  return (select?.value as MapType) || "town";
+}
+
+function restartGame(): void {
+  if (autoPlayInterval) {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+    const btn = document.getElementById("auto-play-btn");
+    if (btn) btn.textContent = "Auto Play";
+  }
+
+  world = createWorldFromSelection(getSelectedMap());
+
+  currentCharacterIndex = 0;
+  isProcessingTurn = false;
+  awaitingPlayerAction = false;
+  eventOrderCounter = 0;
+  logSequence = 0;
+  chronologicalLog = [];
+  snapshots = [];
+  viewingSnapshot = null;
+  eventElements = new Map();
+  allAgentDecisions = [];
+
+  const size = getCanvasSize(world);
+  canvas.width = size.width;
+  canvas.height = size.height;
+
+  const eventLog = document.getElementById("event-log");
+  if (eventLog) {
+    eventLog.innerHTML = `
+      <div class="log-entry">
+        <div class="log-turn">Game Start</div>
+        <div>Awaiting first turn...</div>
+      </div>
+    `;
+  }
+
+  saveSnapshot();
+  renderWorld();
+  updateUI();
+  hidePlayerActions();
+}
 
 function pushEvent(event: Omit<GameEvent, "order">): void {
   const fullEvent: GameEvent = { ...event, order: eventOrderCounter++ };
@@ -615,18 +679,30 @@ function showInspector(w: World, pos: Position): void {
       html += `<div class="item-entry">• ${item.name} (${item.type})`;
       if (item.damage) html += ` [dmg: ${item.damage}]`;
       if (item.armor) html += ` [armor: ${item.armor}]`;
-      if (item.type === "container") {
-        html += item.searched ? " (searched)" : " (not searched)";
-        if (item.searched && item.contents && item.contents.length > 0) {
-          html += '<div style="margin-left: 1rem;">';
-          for (const c of item.contents) {
-            html += `<div class="item-entry">↳ ${c.name}</div>`;
-          }
-          html += "</div>";
-        }
-      }
       html += `</div>`;
     }
+    html += `</div>`;
+  }
+
+  if (tile.feature?.type === "chest") {
+    html += `<div style="margin-top: 0.5rem; font-weight: 600;">Chest:</div>`;
+    html += `<div class="item-entry">• ${tile.feature.name}`;
+    html += tile.feature.searched ? " (searched)" : " (not searched)";
+    if (tile.feature.searched && tile.feature.contents.length > 0) {
+      html += '<div style="margin-left: 1rem;">';
+      for (const c of tile.feature.contents) {
+        html += `<div class="item-entry">↳ ${c.name}</div>`;
+      }
+      html += "</div>";
+    }
+    html += `</div>`;
+  }
+
+  if (tile.feature?.type === "door") {
+    html += `<div style="margin-top: 0.5rem; font-weight: 600;">Door:</div>`;
+    html += `<div class="item-entry">• ${tile.feature.name}`;
+    if (tile.feature.locked) html += " (locked)";
+    if (tile.feature.open) html += " (open)";
     html += `</div>`;
   }
 
@@ -678,16 +754,6 @@ function showInspector(w: World, pos: Position): void {
         html += `<div class="item-entry">• ${item.name} (${item.type})`;
         if (item.damage) html += ` [dmg: ${item.damage}]`;
         if (item.armor) html += ` [armor: ${item.armor}]`;
-        if (item.type === "container") {
-          html += item.searched ? " (searched)" : " (not searched)";
-          if (item.searched && item.contents && item.contents.length > 0) {
-            html += '<div style="margin-left: 1rem;">';
-            for (const c of item.contents) {
-              html += `<div class="item-entry">↳ ${c.name}</div>`;
-            }
-            html += "</div>";
-          }
-        }
         html += `</div>`;
       }
       html += `</div>`;
@@ -1785,35 +1851,27 @@ async function executePlayerActionFromClick(
     action = { type: "move", targetPosition: { x, y } };
   } else if (selectedAction === "search") {
     const tile = world.tiles[y]?.[x];
-    if (tile) {
-      const container = tile.items.find((i) => i.type === "container");
-      if (container) {
-        action = { type: "search_container", targetItemId: container.id };
-      }
+    if (tile?.feature?.type === "chest") {
+      action = { type: "search_container", targetFeatureId: tile.feature.id };
     }
   } else if (selectedAction === "pickup") {
     const tile = world.tiles[y]?.[x];
     if (tile) {
       // Check for items on ground
-      let item = tile.items.find((i) => i.type !== "container");
+      const item = tile.items[0];
       if (item) {
         action = {
           type: "pick_up",
           targetItemName: item.name,
         };
-      } else {
-        // Check for items inside searched containers
-        for (const container of tile.items.filter(
-          (i) => i.type === "container" && i.searched
-        )) {
-          if (container.contents && container.contents.length > 0) {
-            item = container.contents[0];
-            action = {
-              type: "pick_up",
-              targetItemName: item.name,
-            };
-            break;
-          }
+      } else if (tile.feature?.type === "chest" && tile.feature.searched) {
+        // Check for items inside searched chest
+        const chestItem = tile.feature.contents[0];
+        if (chestItem) {
+          action = {
+            type: "pick_up",
+            targetItemName: chestItem.name,
+          };
         }
       }
     }
@@ -2454,7 +2512,7 @@ function showApiKeyPrompt(): void {
 }
 
 function init(): void {
-  world = createTownMap(); // Options: createBloodsportMap(), createCageMap()
+  world = createWorldFromSelection(getSelectedMap());
 
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
@@ -2468,9 +2526,12 @@ function init(): void {
   saveSnapshot();
   renderWorld();
   updateUI();
-  hidePlayerActions(); // Start with player actions hidden
+  hidePlayerActions();
 
   canvas.addEventListener("click", handleCanvasClick);
+
+  const restartBtn = document.getElementById("restart-btn");
+  restartBtn?.addEventListener("click", restartGame);
 
   const nextTurnBtn = document.getElementById("next-turn-btn");
   nextTurnBtn?.addEventListener("click", () => {

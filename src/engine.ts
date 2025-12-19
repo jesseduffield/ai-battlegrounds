@@ -10,6 +10,8 @@ import type {
   TileType,
   Item,
   CharacterKnowledge,
+  DoorFeature,
+  ChestFeature,
 } from "./types";
 
 export const MAX_TALK_DISTANCE = 15;
@@ -18,28 +20,66 @@ export function createId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
 
+// Manhattan distance (for range calculations like talk distance)
 export function distance(a: Position, b: Position): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+// Chebyshev distance (for movement - diagonal = 1 step)
+export function chebyshevDistance(a: Position, b: Position): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
 export function positionsEqual(a: Position, b: Position): boolean {
   return a.x === b.x && a.y === b.y;
 }
 
+// Get all 8 adjacent positions (including diagonals)
+// Cardinal directions first for more natural pathfinding
+export function getAdjacentPositions(pos: Position): Position[] {
+  return [
+    // Cardinal directions first (preferred for natural-looking paths)
+    { x: pos.x, y: pos.y - 1 }, // N
+    { x: pos.x + 1, y: pos.y }, // E
+    { x: pos.x, y: pos.y + 1 }, // S
+    { x: pos.x - 1, y: pos.y }, // W
+    // Diagonals second
+    { x: pos.x - 1, y: pos.y - 1 }, // NW
+    { x: pos.x + 1, y: pos.y - 1 }, // NE
+    { x: pos.x - 1, y: pos.y + 1 }, // SW
+    { x: pos.x + 1, y: pos.y + 1 }, // SE
+  ];
+}
+
+// Check if position is adjacent (including diagonals)
+export function isAdjacent(a: Position, b: Position): boolean {
+  return chebyshevDistance(a, b) === 1;
+}
+
 function blocksVision(tile: Tile): boolean {
   return tile.type === "wall";
 }
 
-function hasContainer(tile: Tile): boolean {
-  return tile.items.some((item) => item.type === "container");
+function hasChest(tile: Tile): boolean {
+  return tile.feature?.type === "chest";
+}
+
+function hasClosedDoor(tile: Tile): boolean {
+  return tile.feature?.type === "door" && !tile.feature.open;
 }
 
 function canWalkThrough(tile: Tile): boolean {
-  const walkableTiles = ["ground", "door", "grass"];
+  const walkableTiles: TileType[] = ["ground", "grass"];
   if (!walkableTiles.includes(tile.type)) {
     return false;
   }
-  return !hasContainer(tile);
+  if (hasClosedDoor(tile)) {
+    return false;
+  }
+  if (hasChest(tile)) {
+    return false;
+  }
+  return true;
 }
 
 // Shadowcasting visibility algorithm
@@ -248,12 +288,17 @@ export function initializeCharacterMemory(
       .filter((i) => i.position.x === pos.x && i.position.y === pos.y)
       .map((i) => i.item.name);
 
+    const featureMemory = visibleTile.feature
+      ? { type: visibleTile.feature.type, name: visibleTile.feature.name }
+      : undefined;
+
     character.mapMemory.set(key, {
       type: visibleTile.type,
       lastSeenTurn: world.turn,
       items: itemsAtTile.length > 0 ? itemsAtTile : undefined,
       characterName: charAtTile?.character.name,
       characterAlive: charAtTile?.character.alive,
+      feature: featureMemory,
     });
   }
 }
@@ -275,12 +320,8 @@ export function findPath(
   while (queue.length > 0) {
     const current = queue.shift()!;
 
-    const neighbors = [
-      { x: current.pos.x - 1, y: current.pos.y },
-      { x: current.pos.x + 1, y: current.pos.y },
-      { x: current.pos.x, y: current.pos.y - 1 },
-      { x: current.pos.x, y: current.pos.y + 1 },
-    ];
+    // 8-directional movement (including diagonals)
+    const neighbors = getAdjacentPositions(current.pos);
 
     for (const next of neighbors) {
       if (
@@ -296,11 +337,23 @@ export function findPath(
 
       const tile = world.tiles[next.y][next.x];
 
-      // Containers are never walkable, even as destination
-      if (hasContainer(tile)) continue;
+      // Chests are never walkable, even as destination
+      if (hasChest(tile)) continue;
 
-      // Walls/non-ground tiles are NEVER walkable
+      // Walls/non-ground tiles are NEVER walkable (includes closed doors)
       if (!canWalkThrough(tile)) continue;
+
+      // Check for diagonal blocking (can't squeeze between two walls)
+      const dx = next.x - current.pos.x;
+      const dy = next.y - current.pos.y;
+      if (dx !== 0 && dy !== 0) {
+        // Diagonal move - check both adjacent tiles
+        const tile1 = world.tiles[current.pos.y][next.x];
+        const tile2 = world.tiles[next.y][current.pos.x];
+        if (!canWalkThrough(tile1) && !canWalkThrough(tile2)) {
+          continue; // Can't squeeze between two blocking tiles
+        }
+      }
 
       // Characters always block - you can't move onto another character
       const hasCharacter = world.characters.some(
@@ -345,12 +398,8 @@ export function getReachableTiles(
 
     if (current.steps >= maxSteps) continue;
 
-    const neighbors = [
-      { x: current.pos.x - 1, y: current.pos.y },
-      { x: current.pos.x + 1, y: current.pos.y },
-      { x: current.pos.x, y: current.pos.y - 1 },
-      { x: current.pos.x, y: current.pos.y + 1 },
-    ];
+    // 8-directional movement (including diagonals)
+    const neighbors = getAdjacentPositions(current.pos);
 
     for (const next of neighbors) {
       if (
@@ -365,12 +414,25 @@ export function getReachableTiles(
       if (visited.has(key)) continue;
 
       const tile = world.tiles[next.y][next.x];
+
+      if (!canWalkThrough(tile)) continue;
+
+      // Check for diagonal blocking (can't squeeze between two walls)
+      const dx = next.x - current.pos.x;
+      const dy = next.y - current.pos.y;
+      if (dx !== 0 && dy !== 0) {
+        const tile1 = world.tiles[current.pos.y][next.x];
+        const tile2 = world.tiles[next.y][current.pos.x];
+        if (!canWalkThrough(tile1) && !canWalkThrough(tile2)) {
+          continue;
+        }
+      }
+
       const hasCharacter = world.characters.some(
         (c) =>
           c.alive && c.id !== character.id && positionsEqual(c.position, next)
       );
-
-      if (!canWalkThrough(tile) || hasCharacter) continue;
+      if (hasCharacter) continue;
 
       visited.add(key);
       queue.push({ pos: next, steps: current.steps + 1 });
@@ -472,10 +534,10 @@ export function executeAction(
         const stepPos = path[i];
         const stepTile = world.tiles[stepPos.y][stepPos.x];
 
-        // Find any trap on this tile (owner can trigger their own trap!)
-        const trap = stepTile.traps[0];
+        // Check if there's a trap feature on this tile
+        if (stepTile.feature?.type === "trap" && !stepTile.feature.triggered) {
+          const trap = stepTile.feature;
 
-        if (trap) {
           // Trap triggered! Stop movement here
           finalPosition = stepPos;
           actualPath = [startPos, ...path.slice(0, i + 1)];
@@ -503,11 +565,9 @@ export function executeAction(
             witnessIds: getWitnessIds(world, [stepPos]),
           });
 
-          // Remove the trap after it triggers
-          const trapIndex = stepTile.traps.findIndex((t) => t.id === trap.id);
-          if (trapIndex >= 0) {
-            stepTile.traps.splice(trapIndex, 1);
-          }
+          // Mark the trap as triggered and remove it
+          trap.triggered = true;
+          stepTile.feature = undefined;
 
           break;
         }
@@ -556,12 +616,17 @@ export function executeAction(
           .filter((i) => i.position.x === pos.x && i.position.y === pos.y)
           .map((i) => i.item.name);
 
+        const featureMemory = visibleTile.feature
+          ? { type: visibleTile.feature.type, name: visibleTile.feature.name }
+          : undefined;
+
         character.mapMemory.set(key, {
           type: visibleTile.type,
           lastSeenTurn: world.turn,
           items: itemsAtTile.length > 0 ? itemsAtTile : undefined,
           characterName: charAtTile?.character.name,
           characterAlive: charAtTile?.character.alive,
+          feature: featureMemory,
         });
       }
 
@@ -573,16 +638,14 @@ export function executeAction(
     }
 
     case "search_container": {
+      // Include current tile and all 8 adjacent tiles
       const adjacentPositions = [
         character.position,
-        { x: character.position.x - 1, y: character.position.y },
-        { x: character.position.x + 1, y: character.position.y },
-        { x: character.position.x, y: character.position.y - 1 },
-        { x: character.position.x, y: character.position.y + 1 },
+        ...getAdjacentPositions(character.position),
       ];
 
-      let container: Item | undefined;
-      let containerPosition: Position | undefined;
+      let chest: ChestFeature | undefined;
+      let chestPosition: Position | undefined;
 
       for (const pos of adjacentPositions) {
         if (
@@ -594,35 +657,34 @@ export function executeAction(
           continue;
         }
         const tile = world.tiles[pos.y][pos.x];
-        const found = tile.items.find(
-          (item) => item.type === "container" && item.id === action.targetItemId
-        );
-        if (found) {
-          container = found;
-          containerPosition = pos;
+        if (
+          tile.feature?.type === "chest" &&
+          tile.feature.id === action.targetFeatureId
+        ) {
+          chest = tile.feature;
+          chestPosition = pos;
           break;
         }
       }
 
-      if (!container || !containerPosition) {
+      if (!chest || !chestPosition) {
         return {
           success: false,
-          message: "Container not adjacent - must be within 1 tile to search",
+          message: "Chest not adjacent - must be within 1 tile to search",
           events,
         };
       }
 
-      container.searched = true;
-      const contents = container.contents ?? [];
+      chest.searched = true;
+      const contents = chest.contents ?? [];
 
       events.push({
         turn: world.turn,
         type: "search",
         actorId: character.id,
-        itemId: container.id,
-        position: containerPosition,
-        description: `${character.name} searched ${container.name}`,
-        witnessIds: getWitnessIds(world, [containerPosition]),
+        position: chestPosition,
+        description: `${character.name} searched ${chest.name}`,
+        witnessIds: getWitnessIds(world, [chestPosition]),
       });
 
       return {
@@ -633,13 +695,10 @@ export function executeAction(
     }
 
     case "pick_up": {
-      // Search current tile and adjacent tiles for the item
+      // Search current tile and all 8 adjacent tiles for the item
       const adjacentPositions = [
         character.position,
-        { x: character.position.x - 1, y: character.position.y },
-        { x: character.position.x + 1, y: character.position.y },
-        { x: character.position.x, y: character.position.y - 1 },
-        { x: character.position.x, y: character.position.y + 1 },
+        ...getAdjacentPositions(character.position),
       ];
 
       let item: Item | undefined;
@@ -669,16 +728,14 @@ export function executeAction(
           break;
         }
 
-        // Check inside searched containers on tile (exact match)
-        for (const container of tile.items.filter(
-          (i) => i.type === "container" && i.searched
-        )) {
-          const containerItemIndex = (container.contents ?? []).findIndex(
+        // Check inside searched chests on tile (exact match)
+        if (tile.feature?.type === "chest" && tile.feature.searched) {
+          const chestItemIndex = (tile.feature.contents ?? []).findIndex(
             (i) => i.name.toLowerCase() === searchName
           );
-          if (containerItemIndex >= 0) {
-            item = container.contents![containerItemIndex];
-            container.contents!.splice(containerItemIndex, 1);
+          if (chestItemIndex >= 0) {
+            item = tile.feature.contents![chestItemIndex];
+            tile.feature.contents!.splice(chestItemIndex, 1);
             foundPosition = pos;
             break;
           }
@@ -832,7 +889,7 @@ export function executeAction(
         return { success: false, message: "Target is already dead", events };
       }
 
-      if (distance(character.position, target.position) > 1) {
+      if (!isAdjacent(character.position, target.position)) {
         return { success: false, message: "Target too far away", events };
       }
 
@@ -983,10 +1040,10 @@ export function executeAction(
         };
       }
 
-      if (hasContainer(targetTile)) {
+      if (targetTile.feature) {
         return {
           success: false,
-          message: "Cannot place trap on a tile with a container",
+          message: "Cannot place trap on a tile with a feature",
           events,
         };
       }
@@ -1008,15 +1065,17 @@ export function executeAction(
       );
       character.inventory.splice(itemIndex, 1);
 
-      // Place trap on target tile
-      targetTile.traps.push({
+      // Place trap as feature on target tile
+      targetTile.feature = {
+        type: "trap",
         id: trapItem.id,
         name: trapItem.name,
         ownerId: character.id,
         damage: trapItem.trapDamage ?? 3,
         attackDebuff: trapItem.trapAttackDebuff ?? 2,
         debuffDuration: trapItem.trapDebuffDuration ?? 5,
-      });
+        triggered: false,
+      };
 
       events.push({
         turn: world.turn,
@@ -1124,38 +1183,12 @@ export function executeAction(
     }
 
     case "unlock": {
-      const doorName = action.targetDoorName.toLowerCase();
-
-      // Map door names to tile types and required keys
-      const doorConfig: Record<
-        string,
-        { tileType: TileType; keyName: string }
-      > = {
-        "blue door": { tileType: "blue_door", keyName: "blue" },
-      };
-
-      const config = Object.entries(doorConfig).find(([name]) =>
-        doorName.includes(name)
-      )?.[1];
-
-      if (!config) {
-        return {
-          success: false,
-          message: `Unknown door type: "${action.targetDoorName}"`,
-          events,
-        };
-      }
-
-      // Find adjacent door of this type
-      const adjacentPositions = [
-        { x: character.position.x - 1, y: character.position.y },
-        { x: character.position.x + 1, y: character.position.y },
-        { x: character.position.x, y: character.position.y - 1 },
-        { x: character.position.x, y: character.position.y + 1 },
-      ];
+      // Find adjacent door feature with matching ID (8 directions)
+      const adjacentPositions = getAdjacentPositions(character.position);
 
       let doorPosition: Position | undefined;
       let doorTile: Tile | undefined;
+      let doorFeature: DoorFeature | undefined;
 
       for (const pos of adjacentPositions) {
         if (
@@ -1167,17 +1200,37 @@ export function executeAction(
           continue;
         }
         const tile = world.tiles[pos.y][pos.x];
-        if (tile.type === config.tileType) {
+        if (
+          tile.feature?.type === "door" &&
+          tile.feature.id === action.targetFeatureId
+        ) {
           doorPosition = pos;
           doorTile = tile;
+          doorFeature = tile.feature;
           break;
         }
       }
 
-      if (!doorPosition || !doorTile) {
+      if (!doorPosition || !doorTile || !doorFeature) {
         return {
           success: false,
-          message: `No ${action.targetDoorName} adjacent to unlock`,
+          message: "No matching door adjacent to unlock",
+          events,
+        };
+      }
+
+      if (!doorFeature.locked) {
+        return {
+          success: false,
+          message: "This door is not locked",
+          events,
+        };
+      }
+
+      if (doorFeature.open) {
+        return {
+          success: false,
+          message: "This door is already open",
           events,
         };
       }
@@ -1185,15 +1238,12 @@ export function executeAction(
       // Check for matching key in inventory
       const keyIndex = character.inventory.findIndex(
         (item) =>
-          item.type === "key" &&
-          item.name.toLowerCase().includes(config.keyName)
+          item.type === "key" && item.unlocksFeatureId === doorFeature!.id
       );
       if (keyIndex === -1) {
         return {
           success: false,
-          message: `You need a ${
-            config.keyName.charAt(0).toUpperCase() + config.keyName.slice(1)
-          } Key to unlock this door`,
+          message: `You need the correct key to unlock ${doorFeature.name}`,
           events,
         };
       }
@@ -1202,8 +1252,9 @@ export function executeAction(
       const keyName = character.inventory[keyIndex].name;
       character.inventory.splice(keyIndex, 1);
 
-      // Change tile to ground
-      doorTile.type = "ground";
+      // Unlock and open the door
+      doorFeature.locked = false;
+      doorFeature.open = true;
 
       const keyConsumedEvent: GameEvent = {
         turn: world.turn,
@@ -1219,7 +1270,7 @@ export function executeAction(
         type: "unlock",
         actorId: character.id,
         position: doorPosition,
-        description: `🔓 ${character.name} unlocks the ${action.targetDoorName} at (${doorPosition.x}, ${doorPosition.y})!`,
+        description: `🔓 ${character.name} unlocks ${doorFeature.name} at (${doorPosition.x}, ${doorPosition.y})!`,
         witnessIds: getWitnessIds(world, [doorPosition]),
       };
       events.push(unlockEvent);
@@ -1229,15 +1280,16 @@ export function executeAction(
         if (!c.alive) continue;
         if (lineOfSight(world, c.position, doorPosition)) {
           c.mapMemory.set(`${doorPosition.x},${doorPosition.y}`, {
-            type: "ground",
+            type: doorTile.type,
             lastSeenTurn: world.turn,
+            feature: { type: "door", name: doorFeature.name },
           });
         }
       }
 
       return {
         success: true,
-        message: `Unlocked the ${action.targetDoorName}`,
+        message: `Unlocked ${doorFeature.name}`,
         events,
       };
     }
@@ -1311,23 +1363,37 @@ export function getCharacterKnowledge(
   }
 
   const tile = world.tiles[y][x];
+
+  // Handle items on tile
   for (const item of tile.items) {
-    if (item.type === "container") {
-      possibleActions.push({ type: "search_container", targetItemId: item.id });
-      if (item.searched && item.contents) {
-        for (const content of item.contents) {
-          possibleActions.push({
-            type: "pick_up",
-            targetItemName: content.name,
-          });
-        }
+    possibleActions.push({
+      type: "pick_up",
+      targetItemName: item.name,
+    });
+  }
+
+  // Handle chest feature
+  if (tile.feature?.type === "chest") {
+    possibleActions.push({
+      type: "search_container",
+      targetFeatureId: tile.feature.id,
+    });
+    if (tile.feature.searched && tile.feature.contents) {
+      for (const content of tile.feature.contents) {
+        possibleActions.push({
+          type: "pick_up",
+          targetItemName: content.name,
+        });
       }
-    } else {
-      possibleActions.push({
-        type: "pick_up",
-        targetItemName: item.name,
-      });
     }
+  }
+
+  // Handle door feature
+  if (tile.feature?.type === "door" && tile.feature.locked) {
+    possibleActions.push({
+      type: "unlock",
+      targetFeatureId: tile.feature.id,
+    });
   }
 
   for (const item of character.inventory) {
@@ -1351,7 +1417,7 @@ export function getCharacterKnowledge(
   }
 
   for (const { character: other } of visible.characters) {
-    if (distance(character.position, other.position) <= 1) {
+    if (isAdjacent(character.position, other.position)) {
       possibleActions.push({ type: "attack", targetCharacterId: other.id });
     }
   }
