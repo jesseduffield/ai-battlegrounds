@@ -599,20 +599,275 @@
         height: auto;
       }
     }
+
+    /* Editor styles */
+    .mode-toggle {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .mode-btn {
+      padding: 0.5rem 1rem;
+      background: var(--bg-panel-light);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mode-btn:first-child {
+      border-radius: 4px 0 0 4px;
+    }
+
+    .mode-btn:last-child {
+      border-radius: 0 4px 4px 0;
+    }
+
+    .mode-btn.active {
+      background: var(--accent-blue);
+      color: white;
+      border-color: var(--accent-blue);
+    }
+
+    .mode-btn:hover:not(.active) {
+      background: var(--bg-panel);
+      color: var(--text-primary);
+    }
+
+    #editor-container {
+      display: none;
+    }
+
+    #editor-container.active {
+      display: flex;
+      flex: 1;
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    main.hidden {
+      display: none !important;
+    }
+
+    .editor-sidebar {
+      width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .editor-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .editor-canvas-container {
+      flex: 1;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow: auto;
+    }
+
+    .tool-palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding: 0.5rem;
+    }
+
+    .tool-btn {
+      padding: 0.5rem 0.75rem;
+      background: var(--bg-panel-light);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+
+    .tool-btn.active {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+    }
+
+    .tool-btn:hover:not(.active) {
+      background: var(--bg-panel);
+    }
+
+    .terrain-palette, .feature-palette {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+      gap: 0.5rem;
+      padding: 0.5rem;
+    }
+
+    .palette-item {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-panel-light);
+      border: 2px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.65rem;
+      text-align: center;
+      padding: 0.25rem;
+    }
+
+    .palette-item.selected {
+      border-color: var(--accent-blue);
+      background: rgba(68, 136, 255, 0.2);
+    }
+
+    .palette-item:hover:not(.selected) {
+      border-color: var(--text-secondary);
+    }
+
+    .palette-item .icon {
+      font-size: 1.5rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .editor-form {
+      padding: 1rem;
+    }
+
+    .form-group {
+      margin-bottom: 0.75rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.25rem;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 0.5rem;
+      background: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+
+    .form-group textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    .btn-primary {
+      padding: 0.5rem 1rem;
+      background: var(--accent-blue);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .btn-secondary {
+      padding: 0.5rem 1rem;
+      background: var(--bg-panel-light);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .map-size-inputs {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.5rem;
+    }
+
+    .map-size-inputs input {
+      width: 60px;
+      padding: 0.25rem 0.5rem;
+      background: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-primary);
+      text-align: center;
+    }
+
+    .item-list, .character-list {
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 0.5rem;
+    }
+
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem;
+      background: var(--bg-panel-light);
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+    }
+
+    .list-item:hover {
+      background: var(--bg-panel);
+    }
+
+    .list-item.selected {
+      border: 1px solid var(--accent-blue);
+    }
+
+    .properties-panel {
+      padding: 1rem;
+    }
+
+    .properties-panel h4 {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
   </style>
 </head>
 <body>
   <header>
     <h1>⚔️ AILand</h1>
-    <div class="map-selector">
+    <div class="mode-toggle">
+      <button id="game-mode-btn" class="mode-btn active">🎮 Game</button>
+      <button id="editor-mode-btn" class="mode-btn">🛠️ Editor</button>
+    </div>
+    <div class="map-selector" id="game-controls">
       <select id="map-select">
         <option value="town">🏘️ Town</option>
         <option value="bloodsport">⚔️ Bloodsport Arena</option>
         <option value="cage">🔒 Cage Match</option>
+        <option value="custom">📝 Custom Map</option>
       </select>
       <button id="restart-btn">🔄 Restart</button>
     </div>
-    <div class="turn-info">
+    <div class="turn-info" id="turn-info">
       <div class="turn-badge">Turn: <span id="turn-number">1</span></div>
       <div class="turn-badge">Acting: <span id="current-actor">—</span></div>
     </div>
@@ -727,6 +982,271 @@
       </div>
     </div>
   </main>
+
+  <!-- Editor Mode Container -->
+  <div id="editor-container">
+    <div class="editor-sidebar">
+      <div class="panel">
+        <div class="panel-header">Map Size</div>
+        <div class="map-size-inputs">
+          <label>W:</label>
+          <input type="number" id="editor-width" value="20" min="5" max="50">
+          <label>H:</label>
+          <input type="number" id="editor-height" value="15" min="5" max="50">
+          <button class="btn-secondary" id="resize-map-btn">Apply</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">Tools</div>
+        <div class="tool-palette">
+          <button class="tool-btn active" data-tool="select">🔍 Select</button>
+          <button class="tool-btn" data-tool="terrain">🌍 Terrain</button>
+        </div>
+      </div>
+
+      <div class="panel" id="terrain-panel" style="display: none;">
+        <div class="panel-header">Terrain</div>
+        <div class="terrain-palette">
+          <div class="palette-item selected" data-terrain="ground">
+            <span class="icon">🟫</span>
+            Ground
+          </div>
+          <div class="palette-item" data-terrain="wall">
+            <span class="icon">🧱</span>
+            Wall
+          </div>
+          <div class="palette-item" data-terrain="grass">
+            <span class="icon">🌿</span>
+            Grass
+          </div>
+          <div class="palette-item" data-terrain="bars">
+            <span class="icon">🔲</span>
+            Bars
+          </div>
+          <div class="palette-item" data-terrain="water">
+            <span class="icon">💧</span>
+            Water
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-main">
+      <div class="editor-canvas-container">
+        <canvas id="editor-canvas" width="640" height="480"></canvas>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">Actions</div>
+        <div class="form-actions" style="padding: 0.5rem;">
+          <button class="btn-primary" id="play-map-btn">▶️ Play Map</button>
+          <button class="btn-secondary" id="export-map-btn">💾 Export JSON</button>
+          <button class="btn-secondary" id="import-map-btn">📂 Import JSON</button>
+          <button class="btn-secondary" id="clear-map-btn">🗑️ Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-sidebar">
+      <div class="panel" id="properties-panel">
+        <div class="panel-header">Properties</div>
+        <div class="properties-panel" id="properties-content">
+          <p class="text-muted">Select a tile or entity to edit its properties.</p>
+        </div>
+      </div>
+
+      <div class="panel" id="item-form-panel" style="display: none;">
+        <div class="panel-header">New Item</div>
+        <div class="editor-form" id="item-form">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="item-name" placeholder="Item name">
+          </div>
+          <div class="form-group">
+            <label>Type</label>
+            <select id="item-type">
+              <option value="weapon">Weapon</option>
+              <option value="clothing">Clothing</option>
+              <option value="consumable">Consumable</option>
+              <option value="key">Key</option>
+              <option value="misc">Misc</option>
+            </select>
+          </div>
+          <div class="form-group" id="damage-group">
+            <label>Damage</label>
+            <input type="number" id="item-damage" value="5">
+          </div>
+          <div class="form-group" id="armor-group" style="display: none;">
+            <label>Armor</label>
+            <input type="number" id="item-armor" value="2">
+          </div>
+          <div id="use-effect-group" style="display: none;">
+            <div class="form-group">
+              <label>Use Effect Type</label>
+              <select id="item-use-effect-type">
+                <option value="heal">Heal</option>
+                <option value="damage">Damage</option>
+                <option value="apply_effect">Apply Effect</option>
+                <option value="modify_stat">Modify Stat</option>
+                <option value="message">Show Message</option>
+              </select>
+            </div>
+            <div class="form-group" id="use-effect-heal-group">
+              <label>Heal Amount</label>
+              <input type="number" id="item-use-heal" value="10">
+            </div>
+            <div class="form-group" id="use-effect-damage-group" style="display: none;">
+              <label>Damage Amount</label>
+              <input type="number" id="item-use-damage" value="5">
+            </div>
+            <div id="use-effect-modify-stat-group" style="display: none;">
+              <div class="form-group">
+                <label>Stat</label>
+                <select id="item-use-stat">
+                  <option value="attack">Attack</option>
+                  <option value="defense">Defense</option>
+                  <option value="speed">Speed</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Operation</label>
+                <select id="item-use-operation">
+                  <option value="add">Add</option>
+                  <option value="multiply">Multiply</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Value</label>
+                <input type="number" id="item-use-value" value="1" step="0.1">
+              </div>
+            </div>
+            <div class="form-group" id="use-effect-message-group" style="display: none;">
+              <label>Message</label>
+              <input type="text" id="item-use-message" placeholder="Message to display">
+            </div>
+            <div id="use-effect-apply-group" style="display: none;">
+              <div class="form-group">
+                <label>Effect Name</label>
+                <input type="text" id="item-effect-name" placeholder="e.g. Poisoned, Strengthened">
+              </div>
+              <div class="form-group">
+                <label>Duration (turns, -1 for permanent)</label>
+                <input type="number" id="item-effect-duration" value="3">
+              </div>
+              <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                  <input type="checkbox" id="item-effect-prevents-movement">
+                  Prevents Movement
+                </label>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <label style="font-weight: 600;">Triggers</label>
+                <button type="button" class="btn-secondary" id="item-add-trigger-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;">+ Add Trigger</button>
+              </div>
+              <div id="item-effect-triggers-container" style="max-height: 200px; overflow-y: auto;"></div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-primary" id="save-item-btn">Create Item</button>
+            <button class="btn-secondary" id="cancel-item-btn">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" id="character-form-panel" style="display: none;">
+        <div class="panel-header">New Character</div>
+        <div class="editor-form" id="character-form">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="char-name" placeholder="Character name">
+          </div>
+          <div class="form-group">
+            <label>HP</label>
+            <input type="number" id="char-hp" value="20">
+          </div>
+          <div class="form-group">
+            <label>AI Model</label>
+            <select id="char-model">
+              <option value="gpt-4.1">GPT-4.1</option>
+              <option value="gpt-4o">GPT-4o</option>
+              <option value="gpt-4o-mini">GPT-4o-mini</option>
+              <option value="o4-mini">o4-mini</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Personality Prompt</label>
+            <textarea id="char-prompt" placeholder="Describe this character's personality, goals, and behavior..."></textarea>
+          </div>
+
+          <hr style="margin: 0.75rem 0; border-color: var(--border-color);">
+          <div class="form-group">
+            <label>Inventory</label>
+            <div id="char-inventory-list" style="margin-bottom: 0.5rem; max-height: 100px; overflow-y: auto;"></div>
+            <div style="display: flex; gap: 0.25rem;">
+              <select id="char-add-item-select" style="flex: 1;"></select>
+              <button class="btn-secondary" id="char-add-item-btn" style="padding: 0.25rem 0.5rem;">+ Add</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Equipped Weapon</label>
+            <select id="char-equipped-weapon">
+              <option value="">None</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Equipped Clothing</label>
+            <select id="char-equipped-clothing">
+              <option value="">None</option>
+            </select>
+          </div>
+
+          <hr style="margin: 0.75rem 0; border-color: var(--border-color);">
+          <div class="form-group">
+            <label>Starting Effects</label>
+            <div id="char-effects-list" style="margin-bottom: 0.5rem; max-height: 100px; overflow-y: auto;"></div>
+            <button class="btn-secondary" id="char-add-effect-btn" style="width: 100%;">+ Add Effect</button>
+          </div>
+
+          <div id="char-effect-form" style="display: none; border: 1px solid var(--border-color); padding: 0.5rem; margin-top: 0.5rem; border-radius: 4px;">
+            <div class="form-group">
+              <label>Effect Name</label>
+              <input type="text" id="char-effect-name" placeholder="e.g. Poisoned, Cursed">
+            </div>
+            <div class="form-group">
+              <label>Duration (turns, -1 for permanent)</label>
+              <input type="number" id="char-effect-duration" value="3">
+            </div>
+            <div class="form-group">
+              <label style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="char-effect-prevents-movement">
+                Prevents Movement
+              </label>
+            </div>
+
+            <hr style="margin: 0.5rem 0; border-color: var(--border-color);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <label style="font-weight: 600;">Triggers</label>
+              <button class="btn-secondary" id="char-add-trigger-btn" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;">+ Add Trigger</button>
+            </div>
+            <div id="char-effect-triggers-container" style="max-height: 300px; overflow-y: auto;"></div>
+
+            <div class="form-actions" style="margin-top: 0.75rem;">
+              <button class="btn-primary" id="char-save-effect-btn">Add Effect</button>
+              <button class="btn-secondary" id="char-cancel-effect-btn">Cancel</button>
+            </div>
+          </div>
+
+          <div class="form-actions" style="margin-top: 0.75rem;">
+            <button class="btn-primary" id="save-char-btn">Create Character</button>
+            <button class="btn-secondary" id="cancel-char-btn">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

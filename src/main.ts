@@ -37,6 +37,7 @@ import {
 import type { World, Character, GameEvent, Position, Action } from "./types";
 import { playSoundForEvent } from "./sounds";
 import { initializeSpeech, speakText } from "./speech";
+import { initEditor, getCustomWorld } from "./editor-ui";
 
 type WorldSnapshot = {
   turn: number;
@@ -72,8 +73,9 @@ let playerControlledCharacter: string | null = null; // Character name or null f
 let awaitingPlayerAction = false;
 let eventOrderCounter = 0;
 let allAgentDecisions: AgentDecisionLog[] = [];
+let initialCharacterCount = 0; // Track starting character count for game over logic
 
-type MapType = "town" | "bloodsport" | "cage";
+type MapType = "town" | "bloodsport" | "cage" | "custom";
 
 function createWorldFromSelection(mapType: MapType): World {
   switch (mapType) {
@@ -81,6 +83,11 @@ function createWorldFromSelection(mapType: MapType): World {
       return createBloodsportMap();
     case "cage":
       return createCageMap();
+    case "custom":
+      const customWorld = getCustomWorld();
+      if (customWorld) return customWorld;
+      console.warn("No custom world found, falling back to town");
+      return createTownMap();
     case "town":
     default:
       return createTownMap();
@@ -101,6 +108,7 @@ function restartGame(): void {
   }
 
   world = createWorldFromSelection(getSelectedMap());
+  initialCharacterCount = world.characters.length;
 
   currentCharacterIndex = 0;
   isProcessingTurn = false;
@@ -1674,7 +1682,9 @@ async function processTurn(): Promise<void> {
     currentCharacterIndex++;
     const alive = getAliveCharacters();
 
-    if (alive.length <= 1) {
+    // Only trigger game over if we started with more than 1 character
+    // This allows single-character maps to function without immediate game over
+    if (alive.length <= 1 && initialCharacterCount > 1) {
       const winner = alive[0];
       const gameOverEvent: GameEvent = {
         turn: world.turn,
@@ -2689,6 +2699,7 @@ function init(): void {
   canvas.height = size.height;
 
   showApiKeyPrompt();
+  initEditor();
 
   saveSnapshot();
   renderWorld();
@@ -2699,6 +2710,9 @@ function init(): void {
 
   const restartBtn = document.getElementById("restart-btn");
   restartBtn?.addEventListener("click", restartGame);
+
+  const mapSelect = document.getElementById("map-select") as HTMLSelectElement;
+  mapSelect?.addEventListener("change", restartGame);
 
   const nextTurnBtn = document.getElementById("next-turn-btn");
   nextTurnBtn?.addEventListener("click", () => {
