@@ -63,11 +63,6 @@ export type BloodContract = {
   createdTurn: number;
 };
 
-export type UseEffect =
-  | { type: "heal"; amount: number }
-  | { type: "damage"; amount: number }
-  | { type: "apply_effect"; effect: Effect };
-
 export type Item = {
   id: string;
   name: string;
@@ -75,7 +70,7 @@ export type Item = {
   damage?: number;
   armor?: number;
   trapEffect?: Effect;
-  useEffect?: UseEffect;
+  useEffect?: EffectAction;
   contract?: BloodContract;
   unlocksFeatureId?: string;
 };
@@ -95,7 +90,8 @@ export type EffectTrigger =
   | "turn_start"
   | "turn_end"
   | "on_attack"
-  | "on_damaged";
+  | "on_damaged"
+  | "on_expired";
 
 export type EffectAction =
   | { type: "damage"; amount: number }
@@ -106,7 +102,9 @@ export type EffectAction =
       operation: "add" | "multiply";
       value: number;
     }
-  | { type: "message"; text: string };
+  | { type: "message"; text: string }
+  | { type: "custom"; prompt: string }
+  | { type: "apply_effect"; effect: Effect };
 
 export type Effect = {
   id: string;
@@ -271,32 +269,21 @@ export type ActionResult = {
   };
 };
 
-export type GameEventType =
-  | "think"
-  | "move"
-  | "search"
+export type SoundEffect =
   | "pickup"
   | "drop"
   | "equip"
-  | "use"
   | "attack"
-  | "damage"
-  | "death"
-  | "talk"
   | "miss"
-  | "place_trap"
-  | "trap_triggered"
-  | "effect_expired"
+  | "death"
+  | "search"
+  | "trap"
   | "unlock"
-  | "contract_issued"
-  | "contract_signed"
-  | "contract_judged"
-  | "contract_violation";
+  | "use";
 
 export type GameEvent = {
   turn: number;
   order?: number;
-  type: GameEventType;
   actorId: string;
   targetId?: string;
   itemId?: string;
@@ -304,6 +291,7 @@ export type GameEvent = {
   damage?: number;
   message?: string;
   description: string;
+  sound?: SoundEffect;
   judgePrompt?: string;
   judgeResponse?: string;
   witnessIds: string[];

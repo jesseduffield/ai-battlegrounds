@@ -24,6 +24,7 @@ import {
   processEffects,
   tickEffectDurations,
   describeEffect,
+  applyEffectAction,
 } from "./engine";
 import {
   getAgentDecision,
@@ -31,6 +32,7 @@ import {
   judgeContract,
   getContractDecision,
   getConversationResponse,
+  processCustomEffect,
 } from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
 import { playSoundForEvent } from "./sounds";
@@ -135,7 +137,7 @@ function pushEvent(event: Omit<GameEvent, "order">): void {
   const fullEvent: GameEvent = { ...event, order: eventOrderCounter++ };
   world.events.push(fullEvent);
   addLogEntry(fullEvent);
-  playSoundForEvent(event.type);
+  playSoundForEvent(event.sound);
 }
 let chronologicalLog: LogEntry[] = [];
 let snapshots: WorldSnapshot[] = [];
@@ -204,7 +206,6 @@ async function processExpiredContracts(): Promise<void> {
     // Log the judgment
     const judgmentEvent: GameEvent = {
       turn: world.turn,
-      type: "contract_judged",
       actorId: "",
       description: `⚖️ THE GREAT JUDGE speaks on the contract between ${contract.issuerName} and ${contract.targetName}: "${verdict.verdict}"`,
       message: verdict.verdict,
@@ -225,7 +226,7 @@ async function processExpiredContracts(): Promise<void> {
 
         const deathEvent: GameEvent = {
           turn: world.turn,
-          type: "contract_violation",
+
           actorId: violator.id,
           description: `💀 ${violator.name} is struck dead by divine judgment for violating the Blood Contract!`,
           witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
@@ -429,17 +430,17 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
   const eventLogEl = document.getElementById("event-log");
   if (!eventLogEl) return;
 
-  const typeClass: Record<string, string> = {
-    move: "log-action",
+  const soundClass: Record<string, string> = {
     search: "log-action",
     pickup: "log-item",
     drop: "log-item",
     equip: "log-item",
+    use: "log-item",
     attack: "log-combat",
-    damage: "log-combat",
-    death: "log-death",
-    talk: "log-talk",
     miss: "log-combat",
+    death: "log-death",
+    trap: "log-combat",
+    unlock: "log-action",
   };
 
   const entry = document.createElement("div");
@@ -448,14 +449,16 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
   entry.dataset.snapshotIndex = String(snapshotIdx ?? snapshots.length - 1);
 
   let extraHtml = "";
-  if (event.type === "contract_judged" && event.judgePrompt) {
+  if (event.judgePrompt) {
     const eventIdx = world.events.length - 1;
     extraHtml = `<div style="margin-top: 4px;"><a href="#" class="show-judge-prompt" data-event-idx="${eventIdx}" style="font-size: 11px; color: var(--accent-blue);">📜 Show Judge Prompt</a></div>`;
   }
 
+  const logClass = event.sound ? soundClass[event.sound] ?? "" : "";
+
   entry.innerHTML = `
     <div class="log-turn">Turn ${event.turn}</div>
-    <div class="${typeClass[event.type] ?? ""}">${event.description}</div>
+    <div class="${logClass}">${event.description}</div>
     ${extraHtml}
   `;
 
@@ -491,7 +494,7 @@ function addReasoningEntry(
   if (reasoning) {
     pushEvent({
       turn: world.turn,
-      type: "think",
+
       actorId: character.id,
       description: `${character.name} thought: "${reasoning}"`,
       witnessIds: [character.id],
@@ -714,7 +717,19 @@ function showInspector(w: World, pos: Position): void {
         html += `<div class="item-entry">↳ ${c.name}`;
         if (c.damage) html += ` [dmg: ${c.damage}]`;
         if (c.armor) html += ` [armor: ${c.armor}]`;
-        if (c.useEffect?.type === "heal") html += ` [heals ${c.useEffect.amount}]`;
+        if (c.useEffect) {
+          switch (c.useEffect.type) {
+            case "heal":
+              html += ` [heals ${c.useEffect.amount}]`;
+              break;
+            case "damage":
+              html += ` [dmg: ${c.useEffect.amount}]`;
+              break;
+            case "apply_effect":
+              html += ` [applies ${c.useEffect.effect.name}]`;
+              break;
+          }
+        }
         html += `</div>`;
       }
       html += "</div>";
@@ -1000,7 +1015,7 @@ async function handleConversation(
 
     pushEvent({
       turn: world.turn,
-      type: "talk",
+
       actorId: speaker.id,
       targetId: listener.id,
       message: responseMessage,
@@ -1179,17 +1194,106 @@ async function processTurn(): Promise<void> {
 
   try {
     // Process effects at turn start
-    const turnStartEvents = processEffects(current, "turn_start", world);
+    const { events: turnStartEvents, pendingCustomActions } = processEffects(
+      current,
+      "turn_start",
+      world
+    );
     for (const event of turnStartEvents) {
       pushEvent(event);
+    }
+
+    // Process any custom effect actions (async)
+    for (const customAction of pendingCustomActions) {
+      const character = world.characters.find(
+        (c) => c.id === customAction.characterId
+      );
+      if (character) {
+        const result = await processCustomEffect(
+          world,
+          character,
+          customAction.prompt,
+          world.events
+        );
+        console.log(
+          `Custom effect "${customAction.effectName}" result:`,
+          result.reasoning
+        );
+
+        for (const action of result.actions) {
+          if (action.type === "kill") {
+            const target = world.characters.find(
+              (c) => c.name.toLowerCase() === action.targetName.toLowerCase()
+            );
+            if (target && target.alive) {
+              target.hp = 0;
+              target.alive = false;
+              const deathEvent: GameEvent = {
+                turn: world.turn,
+                sound: "death",
+                actorId: target.id,
+                description: `${target.name} was killed by the ${customAction.effectName} effect! (${result.reasoning})`,
+                witnessIds: getWitnessIds(world, [target.position]),
+              };
+              pushEvent(deathEvent);
+            }
+          }
+        }
+      }
     }
 
     // Tick effect durations and create events for expired effects
     const expiredEffects = tickEffectDurations(current);
     for (const effect of expiredEffects) {
+      // Process on_expired triggers for this effect
+      for (const trigger of effect.triggers) {
+        if (trigger.on === "on_expired") {
+          for (const action of trigger.actions) {
+            const result = applyEffectAction(
+              action,
+              current,
+              world,
+              effect.name
+            );
+            for (const event of result.events) {
+              pushEvent(event);
+            }
+            // Handle custom actions that need async processing
+            if (result.pendingCustom) {
+              const customResult = await processCustomEffect(
+                world,
+                current,
+                result.pendingCustom.prompt,
+                world.events
+              );
+              for (const customAction of customResult.actions) {
+                if (customAction.type === "kill") {
+                  const target = world.characters.find(
+                    (c) =>
+                      c.name.toLowerCase() ===
+                      customAction.targetName.toLowerCase()
+                  );
+                  if (target && target.alive) {
+                    target.hp = 0;
+                    target.alive = false;
+                    pushEvent({
+                      turn: world.turn,
+                      sound: "death",
+                      actorId: target.id,
+                      description: `${target.name} was killed by ${effect.name}! (${customResult.reasoning})`,
+                      witnessIds: getWitnessIds(world, [target.position]),
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
       const expiredEvent: GameEvent = {
         turn: world.turn,
-        type: "effect_expired",
+
         actorId: current.id,
         description: `${current.name} is no longer affected by ${effect.name}!`,
         witnessIds: getWitnessIds(world, [current.position]),
@@ -1262,7 +1366,7 @@ async function processTurn(): Promise<void> {
         // Too many errors, end turn
         const evt: GameEvent = {
           turn: world.turn,
-          type: "move",
+
           actorId: current.id,
           description: `${current.name}: turn ended due to repeated errors`,
           witnessIds: getWitnessIds(world, [current.position]),
@@ -1281,7 +1385,7 @@ async function processTurn(): Promise<void> {
         }
         const evt: GameEvent = {
           turn: world.turn,
-          type: "move",
+
           actorId: current.id,
           description: `${current.name}: move (REJECTED - already moved this turn)`,
           witnessIds: getWitnessIds(world, [current.position]),
@@ -1297,7 +1401,7 @@ async function processTurn(): Promise<void> {
       if (action.type === "attack" && equippedThisTurn) {
         const evt: GameEvent = {
           turn: world.turn,
-          type: "move",
+
           actorId: current.id,
           description: `${current.name} cannot attack after equipping this turn`,
           witnessIds: getWitnessIds(world, [current.position]),
@@ -1357,7 +1461,7 @@ async function processTurn(): Promise<void> {
       if (result.events.length === 0 && action.type !== "look_around") {
         const evt: GameEvent = {
           turn: world.turn,
-          type: "move",
+
           actorId: current.id,
           description: `${current.name}: ${action.type}${
             result.success ? "" : ` (failed: ${result.message})`
@@ -1502,7 +1606,7 @@ async function processTurn(): Promise<void> {
 
             const signedEvt: GameEvent = {
               turn: world.turn,
-              type: "contract_signed",
+
               actorId: target.id,
               targetId: current.id,
               message: action.contractContents,
@@ -1519,7 +1623,7 @@ async function processTurn(): Promise<void> {
           } else {
             const declineEvt: GameEvent = {
               turn: world.turn,
-              type: "talk",
+
               actorId: target.id,
               targetId: current.id,
               message: response || "declined",
@@ -1574,7 +1678,7 @@ async function processTurn(): Promise<void> {
       const winner = alive[0];
       const gameOverEvent: GameEvent = {
         turn: world.turn,
-        type: "death",
+        sound: "death",
         actorId: winner?.id ?? "",
         description: winner
           ? `🏆 GAME OVER! ${winner.name} is the last one standing!`
@@ -1823,12 +1927,22 @@ function selectPlayerAction(actionType: string): void {
         details.innerHTML = usableItems
           .map((item) => {
             let effectDesc = "";
-            if (item.useEffect?.type === "heal") {
-              effectDesc = ` (heals ${item.useEffect.amount})`;
-            } else if (item.useEffect?.type === "damage") {
-              effectDesc = ` (${item.useEffect.amount} dmg)`;
-            } else if (item.useEffect?.type === "apply_effect") {
-              effectDesc = ` (${item.useEffect.effect.name})`;
+            const effect = item.useEffect;
+            if (effect) {
+              switch (effect.type) {
+                case "heal":
+                  effectDesc = ` (heals ${effect.amount})`;
+                  break;
+                case "damage":
+                  effectDesc = ` (${effect.amount} dmg)`;
+                  break;
+                case "apply_effect":
+                  effectDesc = ` (${effect.effect.name})`;
+                  break;
+                case "message":
+                  effectDesc = ` (${effect.text})`;
+                  break;
+              }
             }
             return `<button class="action-btn" onclick="window.executePlayerAction('use', '${item.name}')">${item.name}${effectDesc}</button>`;
           })
@@ -2220,7 +2334,7 @@ async function executePlayerContract(): Promise<void> {
 
       const signedEvt: GameEvent = {
         turn: world.turn,
-        type: "contract_signed",
+
         actorId: targetChar.id,
         targetId: current.id,
         message: terms,
@@ -2231,7 +2345,7 @@ async function executePlayerContract(): Promise<void> {
     } else {
       const declineEvt: GameEvent = {
         turn: world.turn,
-        type: "talk",
+
         actorId: targetChar.id,
         targetId: current.id,
         message: response || "declined",
@@ -2634,7 +2748,7 @@ function init(): void {
 
   const initialEvent: GameEvent = {
     turn: 0,
-    type: "move",
+
     actorId: "",
     description: "",
     witnessIds: world.characters
@@ -2646,7 +2760,7 @@ function init(): void {
   for (const character of world.characters) {
     const evt: GameEvent = {
       turn: 0,
-      type: "move",
+
       actorId: character.id,
       description: `${character.name} is at (${character.position.x}, ${character.position.y})`,
       witnessIds: getWitnessIds(world, [character.position]),

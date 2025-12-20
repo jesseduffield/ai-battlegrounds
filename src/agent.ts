@@ -333,14 +333,20 @@ function formatKnowledge(
   );
   if (usableItems.length > 0) {
     const usableDescriptions = usableItems.map((i) => {
-      if (i.useEffect?.type === "heal") {
-        return `${i.name} (heals ${i.useEffect.amount} HP)`;
-      } else if (i.useEffect?.type === "damage") {
-        return `${i.name} (deals ${i.useEffect.amount} damage to self)`;
-      } else if (i.useEffect?.type === "apply_effect") {
-        return `${i.name} (applies ${i.useEffect.effect.name})`;
+      const effect = i.useEffect;
+      if (!effect) return i.name;
+      switch (effect.type) {
+        case "heal":
+          return `${i.name} (heals ${effect.amount} HP)`;
+        case "damage":
+          return `${i.name} (deals ${effect.amount} damage to self)`;
+        case "apply_effect":
+          return `${i.name} (applies ${effect.effect.name})`;
+        case "message":
+          return `${i.name} (${effect.text})`;
+        default:
+          return i.name;
       }
-      return i.name;
     });
     lines.push(`  -> Usable items: ${usableDescriptions.join(", ")}`);
   }
@@ -1502,21 +1508,8 @@ export type JudgeVerdict = {
   rawResponse?: string; // The raw JSON response from the judge
 };
 
-export async function judgeContract(
-  contract: BloodContract,
-  events: GameEvent[],
-  world: World
-): Promise<JudgeVerdict> {
-  // Filter events to only those that happened during the contract period
-  const relevantEvents = events.filter(
-    (e) => e.turn >= contract.createdTurn && e.turn <= contract.expiryTurn
-  );
-
-  const eventLog = relevantEvents
-    .map((e) => `[Turn ${e.turn}] ${e.description}`)
-    .join("\n");
-
-  const allCharactersStatus = world.characters
+function formatCharactersStatus(world: World): string {
+  return world.characters
     .map((c) => {
       const weapon = c.equippedWeapon
         ? `, armed with ${c.equippedWeapon.name}`
@@ -1538,6 +1531,23 @@ export async function judgeContract(
       }
     })
     .join("\n");
+}
+
+export async function judgeContract(
+  contract: BloodContract,
+  events: GameEvent[],
+  world: World
+): Promise<JudgeVerdict> {
+  // Filter events to only those that happened during the contract period
+  const relevantEvents = events.filter(
+    (e) => e.turn >= contract.createdTurn && e.turn <= contract.expiryTurn
+  );
+
+  const eventLog = relevantEvents
+    .map((e) => `[Turn ${e.turn}] ${e.description}`)
+    .join("\n");
+
+  const allCharactersStatus = formatCharactersStatus(world);
 
   const allItems: string[] = [];
   for (let y = 0; y < world.height; y++) {
@@ -1635,6 +1645,123 @@ If a party died during the contract period, they cannot be a violator (death rel
       verdict:
         "The Great Judge encountered an error. Mercy is granted to all parties.",
       violators: [],
+      prompt,
+    };
+  }
+}
+
+export type CustomEffectResult = {
+  actions: CustomEffectAction[];
+  reasoning: string;
+  prompt?: string;
+  rawResponse?: string;
+};
+
+export type CustomEffectAction = { type: "kill"; targetName: string };
+
+export async function processCustomEffect(
+  world: World,
+  character: Character,
+  customPrompt: string,
+  events: GameEvent[]
+): Promise<CustomEffectResult> {
+  const recentEvents = events.slice(-50);
+  const eventLog = recentEvents
+    .map((e) => `[Turn ${e.turn}] ${e.description}`)
+    .join("\n");
+
+  const allCharactersStatus = formatCharactersStatus(world);
+
+  const asciiMap = generateOmniscientMap(world);
+
+  const prompt = `You are an effect processor for a game. A magical effect is being evaluated.
+
+=== EFFECT CONDITION ===
+${customPrompt}
+
+=== TARGET CHARACTER ===
+${character.name} at (${character.position.x}, ${character.position.y}), HP ${
+    character.hp
+  }/${character.maxHp}
+
+=== ALL CHARACTERS STATUS ===
+${allCharactersStatus}
+
+=== RECENT EVENTS ===
+${eventLog || "(No events)"}
+
+=== MAP ===
+${asciiMap}
+
+Based on the condition above, determine what actions should occur.
+
+Available actions:
+- kill: Kill a character by name
+
+Respond with JSON:
+{
+  "reasoning": "Brief explanation of your decision",
+  "actions": [
+    { "type": "kill", "targetName": "CharacterName" }
+  ]
+}
+
+If the condition is not met, return an empty actions array.
+Only include actions that the condition explicitly requires.`;
+
+  if (!openai) {
+    return {
+      actions: [],
+      reasoning: "No AI connection available",
+      prompt,
+    };
+  }
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: DEFAULT_AI_MODEL,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_completion_tokens: MAX_COMPLETION_TOKENS,
+      reasoning_effort:
+        DEFAULT_REASONING_EFFORT === "none"
+          ? undefined
+          : DEFAULT_REASONING_EFFORT,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return {
+        actions: [],
+        reasoning: "No response from AI",
+        prompt,
+      };
+    }
+
+    const result = JSON.parse(content) as {
+      reasoning: string;
+      actions: CustomEffectAction[];
+    };
+
+    // Validate action target names
+    const validNames = world.characters.map((c) => c.name.toLowerCase());
+    result.actions = result.actions.filter((action) => {
+      if (action.type === "kill") {
+        return validNames.includes(action.targetName.toLowerCase());
+      }
+      return false;
+    });
+
+    return {
+      ...result,
+      prompt,
+      rawResponse: content,
+    };
+  } catch (err) {
+    console.error("Custom effect error:", err);
+    return {
+      actions: [],
+      reasoning: "Error processing effect",
       prompt,
     };
   }

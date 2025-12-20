@@ -137,35 +137,8 @@ export function playSound(name: SoundName): void {
   soundEffects[name]?.();
 }
 
-export function playSoundForEvent(eventType: string): void {
-  switch (eventType) {
-    case "pickup":
-      playSound("pickup");
-      break;
-    case "equip":
-      playSound("equip");
-      break;
-    case "attack":
-    case "damage":
-      playSound("attack");
-      break;
-    case "miss":
-      playSound("miss");
-      break;
-    case "death":
-      playSound("death");
-      break;
-    case "drop":
-      playSound("drop");
-      break;
-    case "search":
-      playSound("search");
-      break;
-    case "trap_triggered":
-      playSound("trap");
-      break;
-    case "unlock":
-      playSound("unlock");
-      break;
+export function playSoundForEvent(sound: string | undefined): void {
+  if (sound && sound in soundEffects) {
+    playSound(sound as SoundName);
   }
 }

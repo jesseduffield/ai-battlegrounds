@@ -14,6 +14,7 @@ import type {
   ChestFeature,
   Effect,
   EffectTrigger,
+  EffectAction,
 } from "./types";
 
 export const MAX_TALK_DISTANCE = 15;
@@ -30,48 +31,152 @@ export function removeEffect(character: Character, effectId: string): void {
   character.effects = character.effects.filter((e) => e.id !== effectId);
 }
 
+export type EffectActionResult = {
+  description: string;
+  events: GameEvent[];
+  pendingCustom?: { prompt: string };
+  died?: boolean;
+};
+
+export function applyEffectAction(
+  action: EffectAction,
+  character: Character,
+  world: World,
+  source: string
+): EffectActionResult {
+  const events: GameEvent[] = [];
+
+  switch (action.type) {
+    case "damage": {
+      character.hp -= action.amount;
+      events.push({
+        turn: world.turn,
+        actorId: character.id,
+        damage: action.amount,
+        description: `${character.name} takes ${action.amount} damage from ${source}!`,
+        sound: "attack",
+        witnessIds: getWitnessIds(world, [character.position]),
+      });
+      if (character.hp <= 0) {
+        character.hp = 0;
+        character.alive = false;
+        events.push({
+          turn: world.turn,
+          actorId: character.id,
+          description: `${character.name} died from ${source}!`,
+          sound: "death",
+          witnessIds: getWitnessIds(world, [character.position]),
+        });
+        return {
+          description: `took ${action.amount} damage`,
+          events,
+          died: true,
+        };
+      }
+      return { description: `took ${action.amount} damage`, events };
+    }
+    case "heal": {
+      const healAmount = Math.min(
+        action.amount,
+        character.maxHp - character.hp
+      );
+      character.hp += healAmount;
+      if (healAmount > 0) {
+        events.push({
+          turn: world.turn,
+          actorId: character.id,
+          damage: -healAmount,
+          description: `${character.name} heals ${healAmount} HP from ${source}!`,
+          witnessIds: getWitnessIds(world, [character.position]),
+        });
+      }
+      return { description: `restored ${healAmount} HP`, events };
+    }
+    case "apply_effect": {
+      applyEffect(character, { ...action.effect });
+      events.push({
+        turn: world.turn,
+        actorId: character.id,
+        description: `${character.name} gains ${action.effect.name} from ${source}!`,
+        witnessIds: getWitnessIds(world, [character.position]),
+      });
+      return { description: `gained ${action.effect.name} effect`, events };
+    }
+    case "message": {
+      events.push({
+        turn: world.turn,
+        actorId: character.id,
+        description: `${source}: ${action.text}`,
+        witnessIds: getWitnessIds(world, [character.position]),
+      });
+      return { description: action.text, events };
+    }
+    case "modify_stat": {
+      const desc =
+        action.operation === "multiply"
+          ? `${action.stat} ×${Math.round(action.value * 100)}%`
+          : `${action.stat} ${action.value >= 0 ? "+" : ""}${action.value}`;
+      events.push({
+        turn: world.turn,
+        actorId: character.id,
+        description: `${character.name}'s ${desc} from ${source}!`,
+        witnessIds: getWitnessIds(world, [character.position]),
+      });
+      return { description: `${action.stat} modified`, events };
+    }
+    case "custom": {
+      return {
+        description: `custom effect pending`,
+        events,
+        pendingCustom: { prompt: action.prompt },
+      };
+    }
+  }
+}
+
+export type PendingCustomAction = {
+  characterId: string;
+  effectName: string;
+  prompt: string;
+};
+
+export type ProcessEffectsResult = {
+  events: GameEvent[];
+  pendingCustomActions: PendingCustomAction[];
+};
+
 export function processEffects(
   character: Character,
   trigger: EffectTrigger,
   world: World
-): GameEvent[] {
+): ProcessEffectsResult {
   const events: GameEvent[] = [];
+  const pendingCustomActions: PendingCustomAction[] = [];
 
   for (const effect of character.effects) {
     for (const t of effect.triggers) {
       if (t.on === trigger) {
         for (const action of t.actions) {
-          if (action.type === "damage") {
-            character.hp -= action.amount;
-            events.push({
-              turn: world.turn,
-              type: "damage",
-              actorId: character.id,
-              damage: action.amount,
-              description: `${character.name} takes ${action.amount} damage from ${effect.name}!`,
-              witnessIds: getWitnessIds(world, [character.position]),
+          const result = applyEffectAction(
+            action,
+            character,
+            world,
+            effect.name
+          );
+          events.push(...result.events);
+          if (result.pendingCustom) {
+            pendingCustomActions.push({
+              characterId: character.id,
+              effectName: effect.name,
+              prompt: result.pendingCustom.prompt,
             });
-            if (character.hp <= 0) {
-              character.hp = 0;
-              character.alive = false;
-              events.push({
-                turn: world.turn,
-                type: "death",
-                actorId: character.id,
-                description: `${character.name} died from ${effect.name}!`,
-                witnessIds: getWitnessIds(world, [character.position]),
-              });
-            }
-          } else if (action.type === "heal") {
-            const healAmount = Math.min(action.amount, character.maxHp - character.hp);
-            character.hp += healAmount;
           }
         }
       }
     }
   }
 
-  return events;
+  return { events, pendingCustomActions };
 }
 
 export function tickEffectDurations(character: Character): Effect[] {
@@ -143,6 +248,12 @@ export function describeEffect(effect: Effect): string {
           const sign = action.value >= 0 ? "+" : "";
           parts.push(`${statName} ${sign}${action.value}`);
         }
+      } else if (action.type === "custom") {
+        parts.push(`custom: "${action.prompt}"`);
+      } else if (action.type === "apply_effect") {
+        parts.push(`applies ${action.effect.name}`);
+      } else if (action.type === "message") {
+        parts.push(`message: "${action.text}"`);
       }
     }
   }
@@ -689,12 +800,12 @@ export function executeAction(
           const ownTrap = trap.ownerId === character.id;
           events.push({
             turn: world.turn,
-            type: "trap_triggered",
             actorId: character.id,
             position: stepPos,
             description: `${character.name} stepped on ${
               ownTrap ? "their own" : "a"
             } ${trap.name}! ${effect.name} for ${effect.duration} turns!`,
+            sound: "trap",
             witnessIds: getWitnessIds(world, [stepPos]),
           });
 
@@ -710,7 +821,6 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "move",
         actorId: character.id,
         position: finalPosition,
         description: trapTriggered
@@ -813,7 +923,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "search",
+        sound: "search",
         actorId: character.id,
         position: chestPosition,
         description: `${character.name} searched ${chest.name}`,
@@ -885,7 +995,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "pickup",
+        sound: "pickup",
         actorId: character.id,
         itemId: item.id,
         position: character.position,
@@ -932,7 +1042,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "drop",
+        sound: "drop",
         actorId: character.id,
         itemId: item.id,
         position: character.position,
@@ -965,7 +1075,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "equip",
+        sound: "equip",
         actorId: character.id,
         itemId: item.id,
         description: `${character.name} equipped ${item.name}`,
@@ -1000,7 +1110,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "equip",
+        sound: "equip",
         actorId: character.id,
         itemId: item.id,
         description: `${character.name} unequipped ${item.name}`,
@@ -1019,27 +1129,20 @@ export function executeAction(
       }
 
       if (!item.useEffect) {
-        return { success: false, message: `${item.name} cannot be used`, events };
+        return {
+          success: false,
+          message: `${item.name} cannot be used`,
+          events,
+        };
       }
 
-      const useEffect = item.useEffect;
-      let effectDescription = "";
-
-      if (useEffect.type === "heal") {
-        const healAmount = Math.min(useEffect.amount, character.maxHp - character.hp);
-        character.hp += healAmount;
-        effectDescription = `restored ${healAmount} HP`;
-      } else if (useEffect.type === "damage") {
-        character.hp -= useEffect.amount;
-        effectDescription = `took ${useEffect.amount} damage`;
-        if (character.hp <= 0) {
-          character.hp = 0;
-          character.alive = false;
-        }
-      } else if (useEffect.type === "apply_effect") {
-        applyEffect(character, { ...useEffect.effect });
-        effectDescription = `gained ${useEffect.effect.name} effect`;
-      }
+      const result = applyEffectAction(
+        item.useEffect,
+        character,
+        world,
+        item.name
+      );
+      events.push(...result.events);
 
       // Remove consumable from inventory after use
       const itemIndex = character.inventory.findIndex(
@@ -1051,10 +1154,10 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "use",
+        sound: "use",
         actorId: character.id,
         itemId: item.id,
-        description: `${character.name} used ${item.name} and ${effectDescription}`,
+        description: `${character.name} used ${item.name} and ${result.description}`,
         witnessIds: getWitnessIds(world, [character.position]),
       });
 
@@ -1083,7 +1186,7 @@ export function executeAction(
       if (damage === 0) {
         events.push({
           turn: world.turn,
-          type: "miss",
+          sound: "miss",
           actorId: character.id,
           targetId: target.id,
           description:
@@ -1098,7 +1201,7 @@ export function executeAction(
 
         events.push({
           turn: world.turn,
-          type: "damage",
+          sound: "attack",
           actorId: character.id,
           targetId: target.id,
           damage,
@@ -1121,7 +1224,7 @@ export function executeAction(
             const itemNames = target.inventory.map((i) => i.name).join(", ");
             events.push({
               turn: world.turn,
-              type: "drop",
+              sound: "drop",
               actorId: target.id,
               position: target.position,
               description: `${target.name}'s items fell to the ground: ${itemNames}`,
@@ -1134,7 +1237,7 @@ export function executeAction(
 
           events.push({
             turn: world.turn,
-            type: "death",
+            sound: "death",
             actorId: character.id,
             targetId: target.id,
             description: `${target.name} has been killed by ${character.name}!`,
@@ -1178,7 +1281,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "talk",
+
         actorId: character.id,
         targetId: target.id,
         message: action.message,
@@ -1257,7 +1360,17 @@ export function executeAction(
         preventsMovement: true,
         triggers: [
           { on: "turn_start", actions: [{ type: "damage", amount: 3 }] },
-          { on: "on_attack", actions: [{ type: "modify_stat", stat: "attack", operation: "multiply", value: 0.5 }] },
+          {
+            on: "on_attack",
+            actions: [
+              {
+                type: "modify_stat",
+                stat: "attack",
+                operation: "multiply",
+                value: 0.5,
+              },
+            ],
+          },
         ],
       };
       targetTile.feature = {
@@ -1271,7 +1384,7 @@ export function executeAction(
 
       events.push({
         turn: world.turn,
-        type: "place_trap",
+
         actorId: character.id,
         itemId: trapItem.id,
         position: { ...action.targetPosition },
@@ -1340,7 +1453,7 @@ export function executeAction(
       const pitchPart = action.message ? ` saying "${action.message}"` : "";
       events.push({
         turn: world.turn,
-        type: "contract_issued",
+
         actorId: character.id,
         targetId: targetChar.id,
         message: action.contractContents,
@@ -1450,7 +1563,7 @@ export function executeAction(
 
       const keyConsumedEvent: GameEvent = {
         turn: world.turn,
-        type: "drop",
+        sound: "drop",
         actorId: character.id,
         description: `🔑 ${character.name} uses ${keyName} (key consumed)`,
         witnessIds: getWitnessIds(world, [character.position]),
@@ -1459,7 +1572,7 @@ export function executeAction(
 
       const unlockEvent: GameEvent = {
         turn: world.turn,
-        type: "unlock",
+        sound: "unlock",
         actorId: character.id,
         position: doorPosition,
         description: `🔓 ${character.name} unlocks ${doorFeature.name} at (${doorPosition.x}, ${doorPosition.y})!`,

@@ -223,6 +223,25 @@ export function createTownMap(): World {
         equippedWeapon: hunterKnife1,
         aiModel: "gpt-4o",
         reasoningEffort: "none",
+        effects: [
+          {
+            id: createId(),
+            name: "Blood oath",
+            duration: 3,
+            triggers: [
+              {
+                on: "on_expired",
+                actions: [
+                  {
+                    type: "custom",
+                    prompt:
+                      "If this character has not attacked anybody by this effect's expiry, they will be killed by the game host.",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       }
     ),
 
