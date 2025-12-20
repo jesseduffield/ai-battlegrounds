@@ -100,6 +100,7 @@ export function createItem(data: {
 
 export function createCharacter(data: {
   name: string;
+  gender?: "male" | "female";
   x: number;
   y: number;
   hp: number;
@@ -114,6 +115,7 @@ export function createCharacter(data: {
   return {
     id: createId(),
     name: data.name,
+    gender: data.gender || "male",
     position: { x: data.x, y: data.y },
     hp: data.hp,
     maxHp: data.hp,

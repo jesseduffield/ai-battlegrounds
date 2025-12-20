@@ -378,6 +378,7 @@ function updatePropertiesPanel(x: number, y: number): void {
   if (character) {
     html += `<hr style="margin: 0.5rem 0; border-color: var(--border-color);">`;
     html += `<h4>Character: ${character.name}</h4>`;
+    html += `<p style="font-size: 0.85rem;">Gender: ${character.gender}</p>`;
     html += `<p style="font-size: 0.85rem;">HP: ${character.hp}/${character.maxHp}</p>`;
     html += `<p style="font-size: 0.85rem;">Model: ${character.aiModel}</p>`;
     if (character.inventory.length > 0) {
@@ -1328,6 +1329,8 @@ function setupCharacterForm(): void {
   saveCharBtn?.addEventListener("click", () => {
     const name = (document.getElementById("char-name") as HTMLInputElement)
       .value;
+    const gender = (document.getElementById("char-gender") as HTMLSelectElement)
+      .value as "male" | "female";
     const hp = parseInt(
       (document.getElementById("char-hp") as HTMLInputElement).value
     );
@@ -1358,6 +1361,7 @@ function setupCharacterForm(): void {
       if (charIdx !== -1) {
         const existingChar = editorState.characters[charIdx];
         existingChar.name = name;
+        existingChar.gender = gender;
         existingChar.maxHp = hp;
         existingChar.hp = Math.min(existingChar.hp, hp);
         existingChar.aiModel = model as any;
@@ -1390,6 +1394,7 @@ function setupCharacterForm(): void {
       // Create mode
       const char = createCharacter({
         name,
+        gender,
         x: pendingAddPosition.x,
         y: pendingAddPosition.y,
         hp,
@@ -1944,6 +1949,8 @@ let editingCharacterId: string | null = null;
   // Populate form fields
   (document.getElementById("char-name") as HTMLInputElement).value =
     character.name;
+  (document.getElementById("char-gender") as HTMLSelectElement).value =
+    character.gender;
   (document.getElementById("char-hp") as HTMLInputElement).value = String(
     character.maxHp
   );

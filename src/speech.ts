@@ -1,28 +1,30 @@
 import OpenAI from "openai";
+import { Character } from "./types";
 
 let openai: OpenAI | null = null;
 
-const VOICES = [
-  "nova",
-  "shimmer",
-  "echo",
-  "onyx",
-  "fable",
-  "alloy",
-  "ash",
-  "sage",
-  "coral",
-] as const;
+const MALE_VOICES = ["echo", "onyx", "fable", "ash"] as const;
+const FEMALE_VOICES = ["nova", "shimmer", "alloy", "sage", "coral"] as const;
 
-const characterVoiceMap = new Map<string, (typeof VOICES)[number]>();
-let nextVoiceIndex = 0;
+const characterVoiceMap = new Map<string, string>();
+const genderVoiceIndex = {
+  male: 0,
+  female: 0,
+};
 
-function getVoiceForCharacter(name: string): (typeof VOICES)[number] {
-  if (!characterVoiceMap.has(name)) {
-    characterVoiceMap.set(name, VOICES[nextVoiceIndex % VOICES.length]);
-    nextVoiceIndex++;
+function getVoiceForCharacter(character: Character): string {
+  if (!characterVoiceMap.has(character.name)) {
+    let voice: string;
+    if (character.gender === "male") {
+      voice = MALE_VOICES[genderVoiceIndex.male % MALE_VOICES.length];
+      genderVoiceIndex.male++;
+    } else {
+      voice = FEMALE_VOICES[genderVoiceIndex.female % FEMALE_VOICES.length];
+      genderVoiceIndex.female++;
+    }
+    characterVoiceMap.set(character.name, voice);
   }
-  return characterVoiceMap.get(name)!;
+  return characterVoiceMap.get(character.name)!;
 }
 
 let currentAudio: HTMLAudioElement | null = null;
@@ -36,7 +38,7 @@ export function initializeSpeech(apiKey: string): void {
 
 export async function speakText(
   text: string,
-  characterName: string
+  character: Character
 ): Promise<void> {
   if (!openai) {
     console.warn("Speech not initialized");
@@ -49,12 +51,12 @@ export async function speakText(
     currentAudio = null;
   }
 
-  const voice = getVoiceForCharacter(characterName);
+  const voice = getVoiceForCharacter(character);
 
   try {
     const response = await openai.audio.speech.create({
       model: "tts-1",
-      voice: voice,
+      voice: voice as any,
       input: text,
       speed: 1.5,
     });

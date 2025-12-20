@@ -783,6 +783,9 @@ function showInspector(w: World, pos: Position): void {
 
     title.textContent = character.name;
     html = `
+      <div class="stat-row"><span class="stat-label">Gender</span><span>${
+        character.gender
+      }</span></div>
       <div class="stat-row"><span class="stat-label">Status</span><span>${
         character.alive ? "Alive" : "Dead"
       }</span></div>
@@ -1040,7 +1043,7 @@ async function handleConversation(
 
     // Show their response
     showThoughtBubble(speaker, responseMessage, "speaking");
-    speakText(responseMessage, speaker.name);
+    speakText(responseMessage, speaker);
     if (!fastMode) {
       await delay(2500);
     }
@@ -1138,7 +1141,7 @@ async function handleContractNegotiation(
     // Show their response if any
     if (result.response) {
       showThoughtBubble(target, result.response, "speaking");
-      speakText(result.response, target.name);
+      speakText(result.response, target);
       if (!fastMode) {
         await delay(2500);
       }
@@ -1181,7 +1184,7 @@ async function handleContractNegotiation(
   // Show their response if any
   if (result.message) {
     showThoughtBubble(target, result.message, "speaking");
-    speakText(result.message, target.name);
+    speakText(result.message, target);
     if (!fastMode) {
       await delay(2500);
     }
@@ -1552,7 +1555,7 @@ async function processTurn(): Promise<void> {
         }
 
         showThoughtBubble(current, action.message, "speaking");
-        speakText(action.message, current.name);
+        speakText(action.message, current);
         if (!fastMode) {
           await delay(2500);
         }
@@ -1590,7 +1593,7 @@ async function processTurn(): Promise<void> {
           // Speak the pitch if provided
           if (action.message) {
             showThoughtBubble(current, action.message, "speaking");
-            speakText(action.message, current.name);
+            speakText(action.message, current);
             if (!fastMode) {
               await delay(2500);
             }
@@ -2214,7 +2217,7 @@ async function executePlayerTalk(): Promise<void> {
   if (result.success) {
     // Show speech bubble
     showThoughtBubble(current, message, "speaking");
-    speakText(message, current.name);
+    speakText(message, current);
     if (!fastMode) {
       await delay(2500);
     }

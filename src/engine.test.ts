@@ -5,8 +5,9 @@ import {
   createId,
   lineOfSight,
   getVisibleTiles,
+  getCharacterKnowledge,
 } from "./engine";
-import type { World, Character, Tile } from "./types";
+import type { World, Character, Tile, Item } from "./types";
 
 function createTestWorld(width: number, height: number): World {
   const tiles: Tile[][] = [];
@@ -38,6 +39,7 @@ function createTestCharacter(
   return {
     id: createId(),
     name,
+    gender: "male",
     position: { x, y },
     hp: 10,
     maxHp: 10,
@@ -1157,5 +1159,103 @@ describe("Corner Wall Visibility", () => {
     // The corner wall at (1,1) should NOT be marked because adjacent walls aren't currently visible
     // Corner wall detection only works with currently visible walls, not remembered ones
     expect(character.mapMemory.has("1,1")).toBe(false);
+  });
+});
+
+describe("Legal Actions - Chest Contents", () => {
+  it("should include PICKUP actions for items in searched chests", async () => {
+    const { generateLegalActionsJson } = await import("./agent");
+
+    const world = createTestWorld(5, 5);
+    const character = createTestCharacter("Picker", 2, 2);
+    character.viewDistance = 10;
+    world.characters.push(character);
+
+    // Add a searched chest with a health potion at adjacent position
+    const healthPotion: Item = {
+      id: "potion-1",
+      name: "Health Potion",
+      type: "consumable",
+      useEffect: { type: "heal", amount: 10 },
+    };
+
+    world.tiles[2][3].feature = {
+      type: "chest",
+      id: "chest-1",
+      name: "Supply Crate",
+      searched: true,
+      contents: [healthPotion],
+    };
+
+    // Get knowledge using the same function parseJsonAction uses
+    const knowledge = getCharacterKnowledge(world, character);
+
+    const actionsJson = generateLegalActionsJson(
+      world,
+      character,
+      knowledge,
+      false
+    );
+    const actions = JSON.parse(actionsJson);
+
+    // Should have a PICKUP action for the Health Potion
+    const pickupActions = actions.filter(
+      (a: { action: string; target?: string }) =>
+        a.action === "PICKUP" && a.target === "Health Potion"
+    );
+
+    expect(pickupActions.length).toBe(1);
+  });
+
+  it("should NOT include PICKUP actions for items in unsearched chests", async () => {
+    const { generateLegalActionsJson } = await import("./agent");
+
+    const world = createTestWorld(5, 5);
+    const character = createTestCharacter("Picker", 2, 2);
+    character.viewDistance = 10;
+    world.characters.push(character);
+
+    // Add an unsearched chest with a health potion at adjacent position
+    const healthPotion: Item = {
+      id: "potion-1",
+      name: "Health Potion",
+      type: "consumable",
+      useEffect: { type: "heal", amount: 10 },
+    };
+
+    world.tiles[2][3].feature = {
+      type: "chest",
+      id: "chest-1",
+      name: "Supply Crate",
+      searched: false,
+      contents: [healthPotion],
+    };
+
+    // Get knowledge using the same function parseJsonAction uses
+    const knowledge = getCharacterKnowledge(world, character);
+
+    const actionsJson = generateLegalActionsJson(
+      world,
+      character,
+      knowledge,
+      false
+    );
+    const actions = JSON.parse(actionsJson);
+
+    // Should NOT have a PICKUP action for the Health Potion (chest not searched)
+    const pickupActions = actions.filter(
+      (a: { action: string; target?: string }) =>
+        a.action === "PICKUP" && a.target === "Health Potion"
+    );
+
+    expect(pickupActions.length).toBe(0);
+
+    // Should have a SEARCH action for the chest
+    const searchActions = actions.filter(
+      (a: { action: string; target?: string }) =>
+        a.action === "SEARCH" && a.target === "Supply Crate"
+    );
+
+    expect(searchActions.length).toBe(1);
   });
 });

@@ -121,6 +121,7 @@ export type Effect = {
 export type Character = {
   id: string;
   name: string;
+  gender: "male" | "female";
   position: Position;
   hp: number;
   maxHp: number;

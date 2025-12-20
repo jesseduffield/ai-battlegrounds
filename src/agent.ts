@@ -15,12 +15,11 @@ import {
   getReachableTiles,
   MAX_TALK_DISTANCE,
   describeEffect,
-  getAdjacentPositions,
 } from "./engine";
 import OpenAI from "openai";
 
 const MAX_COMPLETION_TOKENS = 10_000;
-export const DEFAULT_AI_MODEL = "gpt-4.1";
+export const DEFAULT_AI_MODEL = "gpt-5.2";
 export const DEFAULT_REASONING_EFFORT = "none" as const;
 
 let openai: OpenAI | null = null;
@@ -138,44 +137,71 @@ function findBestTileToward(
   return bestTile;
 }
 
-function generateOmniscientMap(world: World): string {
-  const lines: string[] = [];
-
-  const header =
-    "   " +
-    Array.from({ length: world.width }, (_, i) => (i % 10).toString()).join("");
-  lines.push(header);
+function generateOmniscientMapJson(world: World): string {
+  const tiles: Array<Record<string, unknown>> = [];
 
   for (let y = 0; y < world.height; y++) {
-    let row = y.toString().padStart(2, " ") + " ";
     for (let x = 0; x < world.width; x++) {
       const tile = world.tiles[y][x];
-      const charAtTile = world.characters.find(
-        (c) => c.alive && c.position.x === x && c.position.y === y
-      );
 
-      if (charAtTile) {
-        row += charAtTile.name.charAt(0).toUpperCase();
-      } else if (tile.type === "wall") {
-        row += "#";
-      } else if (tile.type === "bars") {
-        row += "|";
-      } else if (tile.feature?.type === "door" && !tile.feature.open) {
-        row += tile.feature.locked ? "D" : "+";
-      } else if (tile.feature?.type === "chest") {
-        row += "C";
-      } else if (tile.feature?.type === "trap") {
-        row += "^";
-      } else if (tile.items.length > 0) {
-        row += "*";
-      } else {
-        row += ".";
+      const tileData: Record<string, unknown> = {
+        x,
+        y,
+        terrain: tile.type,
+      };
+
+      // Feature details
+      if (tile.feature) {
+        const feature = tile.feature;
+        const featureData: Record<string, unknown> = {
+          type: feature.type,
+          name: feature.name,
+        };
+
+        if (feature.type === "door") {
+          featureData.locked = feature.locked;
+          featureData.open = feature.open;
+        }
+
+        if (feature.type === "chest") {
+          featureData.searched = feature.searched;
+          if (feature.contents.length > 0) {
+            featureData.contents = feature.contents.map(serializeItem);
+          }
+        }
+
+        if (feature.type === "trap") {
+          if (feature.appliesEffect) {
+            featureData.appliesEffect = serializeEffect(feature.appliesEffect);
+          }
+        }
+
+        tileData.feature = featureData;
       }
+
+      // Items on tile
+      if (tile.items.length > 0) {
+        tileData.items = tile.items.map(serializeItem);
+      }
+
+      // Character on tile
+      const charOnTile = world.characters.find(
+        (c) => c.position.x === x && c.position.y === y
+      );
+      if (charOnTile) {
+        tileData.character = serializeCharacter(charOnTile);
+      }
+
+      tiles.push(tileData);
     }
-    lines.push(row);
   }
 
-  return lines.join("\n");
+  const mapData = {
+    worldSize: { width: world.width, height: world.height },
+    tiles,
+  };
+
+  return JSON.stringify(mapData, null, 2);
 }
 
 // Serialize an item with all its details
@@ -365,12 +391,19 @@ function generateMapJson(world: World, character: Character): string {
   return JSON.stringify(mapData, null, 2);
 }
 
-function generateLegalActions(
+// A legal action contains both the display format (for the agent) and the actual Action object
+export type LegalAction = {
+  display: Record<string, unknown>;
+  action: Action;
+};
+
+export function getLegalActions(
   world: World,
   character: Character,
+  knowledge: CharacterKnowledge,
   hasMoved: boolean
-): string {
-  const actions: Array<Record<string, unknown>> = [];
+): LegalAction[] {
+  const legalActions: LegalAction[] = [];
   const pos = character.position;
 
   // Check movement-preventing effects
@@ -380,162 +413,217 @@ function generateLegalActions(
   if (!hasMoved && canMove) {
     const reachable = getReachableTiles(world, character);
     for (const tile of reachable) {
-      actions.push({ action: "MOVE", x: tile.x, y: tile.y });
-    }
-  }
-
-  // Get adjacent positions for various checks
-  const adjacentPositions = [pos, ...getAdjacentPositions(pos)];
-
-  // ATTACK actions - adjacent living characters
-  for (const other of world.characters) {
-    if (other.id === character.id || !other.alive) continue;
-    if (isAdjacent(pos, other.position)) {
-      actions.push({ action: "ATTACK", target: other.name });
-    }
-  }
-
-  // TALK actions - characters within talk distance
-  for (const other of world.characters) {
-    if (other.id === character.id || !other.alive) continue;
-    const dist =
-      Math.abs(pos.x - other.position.x) + Math.abs(pos.y - other.position.y);
-    if (dist <= MAX_TALK_DISTANCE) {
-      actions.push({
-        action: "TALK",
-        target: other.name,
-        message: "<your message>",
+      legalActions.push({
+        display: { action: "MOVE", x: tile.x, y: tile.y },
+        action: { type: "move", targetPosition: tile },
       });
     }
   }
 
-  // PICKUP actions - items on adjacent tiles
-  for (const adjPos of adjacentPositions) {
-    if (
-      adjPos.x < 0 ||
-      adjPos.x >= world.width ||
-      adjPos.y < 0 ||
-      adjPos.y >= world.height
-    )
-      continue;
-    const tile = world.tiles[adjPos.y][adjPos.x];
-    for (const item of tile.items) {
-      actions.push({ action: "PICKUP", target: item.name });
+  // Use visible characters from knowledge
+  const visibleCharacters = knowledge.visible.characters;
+
+  // ATTACK actions - adjacent visible living characters
+  for (const { character: other, position } of visibleCharacters) {
+    if (!other.alive) continue;
+    if (isAdjacent(pos, position)) {
+      legalActions.push({
+        display: { action: "ATTACK", target: other.name },
+        action: { type: "attack", targetCharacterId: other.id },
+      });
+    }
+  }
+
+  // TALK actions - visible characters within talk distance
+  for (const { character: other, position } of visibleCharacters) {
+    if (!other.alive) continue;
+    const dist = Math.abs(pos.x - position.x) + Math.abs(pos.y - position.y);
+    if (dist <= MAX_TALK_DISTANCE) {
+      legalActions.push({
+        display: {
+          action: "TALK",
+          target: other.name,
+          message: "<your message>",
+        },
+        action: { type: "talk", targetCharacterId: other.id, message: "" }, // message filled in later
+      });
+    }
+  }
+
+  // Use visible items and tiles from knowledge
+  const visibleTiles = knowledge.visible.tiles;
+  const visibleItems = knowledge.visible.items;
+
+  // Actually, let's iterate visibleItems properly
+  for (const { item, position } of visibleItems) {
+    if (isAdjacent(pos, position)) {
+      legalActions.push({
+        display: { action: "PICKUP", target: item.name },
+        action: { type: "pick_up", targetItemName: item.name },
+      });
+    }
+  }
+
+  // PICKUP actions - items in searched chests on visible adjacent tiles
+  for (const tile of visibleTiles) {
+    if (!isAdjacent(pos, tile.position)) continue;
+    if (tile.feature?.type === "chest" && tile.feature.searched) {
+      for (const item of tile.feature.contents) {
+        legalActions.push({
+          display: { action: "PICKUP", target: item.name },
+          action: { type: "pick_up", targetItemName: item.name },
+        });
+      }
     }
   }
 
   // EQUIP actions - weapons/clothing in inventory
   for (const item of character.inventory) {
     if (item.type === "weapon" && character.equippedWeapon?.id !== item.id) {
-      actions.push({ action: "EQUIP", target: item.name });
+      legalActions.push({
+        display: { action: "EQUIP", target: item.name },
+        action: { type: "equip", targetItemId: item.id },
+      });
     }
     if (
       item.type === "clothing" &&
       character.equippedClothing?.id !== item.id
     ) {
-      actions.push({ action: "EQUIP", target: item.name });
+      legalActions.push({
+        display: { action: "EQUIP", target: item.name },
+        action: { type: "equip", targetItemId: item.id },
+      });
     }
   }
 
   // UNEQUIP actions
   if (character.equippedWeapon) {
-    actions.push({ action: "UNEQUIP", target: "weapon" });
+    legalActions.push({
+      display: { action: "UNEQUIP", target: "weapon" },
+      action: { type: "unequip", targetItemId: character.equippedWeapon.id },
+    });
   }
   if (character.equippedClothing) {
-    actions.push({ action: "UNEQUIP", target: "clothing" });
+    legalActions.push({
+      display: { action: "UNEQUIP", target: "clothing" },
+      action: { type: "unequip", targetItemId: character.equippedClothing.id },
+    });
   }
 
   // USE actions - consumable items
   for (const item of character.inventory) {
     if (item.useEffect) {
-      actions.push({ action: "USE", target: item.name });
+      legalActions.push({
+        display: { action: "USE", target: item.name },
+        action: { type: "use", targetItemId: item.id },
+      });
     }
   }
 
   // DROP actions - any item in inventory
   for (const item of character.inventory) {
-    actions.push({ action: "DROP", target: item.name });
+    legalActions.push({
+      display: { action: "DROP", target: item.name },
+      action: { type: "drop", targetItemId: item.id },
+    });
   }
 
-  // SEARCH actions - adjacent unsearched chests
-  for (const adjPos of adjacentPositions) {
-    if (
-      adjPos.x < 0 ||
-      adjPos.x >= world.width ||
-      adjPos.y < 0 ||
-      adjPos.y >= world.height
-    )
-      continue;
-    const tile = world.tiles[adjPos.y][adjPos.x];
+  // SEARCH actions - visible adjacent unsearched chests
+  for (const tile of visibleTiles) {
+    if (!isAdjacent(pos, tile.position)) continue;
     if (tile.feature?.type === "chest" && !tile.feature.searched) {
-      actions.push({ action: "SEARCH", target: tile.feature.name });
+      legalActions.push({
+        display: { action: "SEARCH", target: tile.feature.name },
+        action: { type: "search_container", targetFeatureId: tile.feature.id },
+      });
     }
   }
 
-  // UNLOCK actions - adjacent locked doors with matching key
-  for (const adjPos of adjacentPositions) {
-    if (
-      adjPos.x < 0 ||
-      adjPos.x >= world.width ||
-      adjPos.y < 0 ||
-      adjPos.y >= world.height
-    )
-      continue;
-    const tile = world.tiles[adjPos.y][adjPos.x];
+  // UNLOCK actions - visible adjacent locked doors with matching key
+  for (const tile of visibleTiles) {
+    if (!isAdjacent(pos, tile.position)) continue;
     if (tile.feature?.type === "door" && tile.feature.locked) {
       const hasKey = character.inventory.some(
         (i) => i.type === "key" && i.unlocksFeatureId === tile.feature?.id
       );
       if (hasKey) {
-        actions.push({ action: "UNLOCK", target: tile.feature.name });
+        legalActions.push({
+          display: { action: "UNLOCK", target: tile.feature.name },
+          action: { type: "unlock", targetFeatureId: tile.feature.id },
+        });
       }
     }
   }
 
-  // PLACE actions - traps on adjacent walkable tiles
+  // PLACE actions - traps on visible adjacent walkable tiles
   const traps = character.inventory.filter((i) => i.type === "trap");
   if (traps.length > 0) {
-    for (const adjPos of adjacentPositions) {
-      if (
-        adjPos.x < 0 ||
-        adjPos.x >= world.width ||
-        adjPos.y < 0 ||
-        adjPos.y >= world.height
-      )
-        continue;
-      const tile = world.tiles[adjPos.y][adjPos.x];
+    for (const tile of visibleTiles) {
+      if (!isAdjacent(pos, tile.position)) continue;
       if (tile.type !== "wall" && tile.type !== "water" && !tile.feature) {
         for (const trap of traps) {
-          actions.push({
-            action: "PLACE",
-            x: adjPos.x,
-            y: adjPos.y,
-            target: trap.name,
+          legalActions.push({
+            display: {
+              action: "PLACE",
+              x: tile.position.x,
+              y: tile.position.y,
+              target: trap.name,
+            },
+            action: {
+              type: "place",
+              targetPosition: tile.position,
+              targetItemId: trap.id,
+            },
           });
         }
       }
     }
   }
 
-  // CONTRACT actions - offer to characters within talk distance
-  for (const other of world.characters) {
-    if (other.id === character.id || !other.alive) continue;
-    const dist =
-      Math.abs(pos.x - other.position.x) + Math.abs(pos.y - other.position.y);
+  // CONTRACT actions - offer to visible characters within talk distance
+  for (const { character: other, position } of visibleCharacters) {
+    if (!other.alive) continue;
+    const dist = Math.abs(pos.x - position.x) + Math.abs(pos.y - position.y);
     if (dist <= MAX_TALK_DISTANCE) {
-      actions.push({
-        action: "CONTRACT",
-        target: other.name,
-        terms: "<contract terms>",
-        expiry: "<turns until expiry>",
+      legalActions.push({
+        display: {
+          action: "CONTRACT",
+          target: other.name,
+          terms: "<contract terms>",
+          expiry: "<turns until expiry>",
+        },
+        action: {
+          type: "issue_contract",
+          targetCharacterId: other.id,
+          contractContents: "",
+          contractExpiry: 3,
+        }, // filled in later
       });
     }
   }
 
   // Always available actions
-  actions.push({ action: "WAIT" });
+  legalActions.push({
+    display: { action: "WAIT" },
+    action: { type: "wait" },
+  });
 
-  return JSON.stringify(actions, null, 2);
+  return legalActions;
+}
+
+// For display purposes - just returns the JSON string of display actions
+export function generateLegalActionsJson(
+  world: World,
+  character: Character,
+  knowledge: CharacterKnowledge,
+  hasMoved: boolean
+): string {
+  const legalActions = getLegalActions(world, character, knowledge, hasMoved);
+  return JSON.stringify(
+    legalActions.map((la) => la.display),
+    null,
+    2
+  );
 }
 
 function formatKnowledge(
@@ -554,6 +642,7 @@ function formatKnowledge(
   lines.push(``);
   lines.push(`=== YOUR STATUS ===`);
   lines.push(`Name: ${character.name}`);
+  lines.push(`Gender: ${character.gender}`);
   lines.push(`HP: ${knowledge.status.hp}/${knowledge.status.maxHp}`);
   lines.push(`Position: ${formatPosition(knowledge.status.position)}`);
 
@@ -635,7 +724,9 @@ function formatKnowledge(
   lines.push(
     `Choose one of these actions. Parameters shown as <placeholder> must be filled in by you.`
   );
-  lines.push(`\n${generateLegalActions(world, character, hasMoved)}`);
+  lines.push(
+    `\n${generateLegalActionsJson(world, character, knowledge, hasMoved)}`
+  );
 
   return lines.join("\n");
 }
@@ -761,22 +852,37 @@ function parseJsonAction(
   jsonResponse: JsonResponse,
   knowledge: CharacterKnowledge,
   world: World,
-  character: Character
+  character: Character,
+  hasMoved: boolean = false
 ): { action: Action | null; error: string | null } {
-  const reachableTiles = getReachableTiles(world, character);
+  // Generate all legal actions - this is the single source of truth
+  const legalActions = getLegalActions(world, character, knowledge, hasMoved);
+
+  // Helper to match a target name (case-insensitive, partial match)
+  const matchesTarget = (legal: string, response: string): boolean => {
+    const legalLower = legal.toLowerCase();
+    const responseLower = response.toLowerCase();
+    return legalLower === responseLower || legalLower.includes(responseLower);
+  };
 
   switch (jsonResponse.action) {
     case "MOVE": {
       if (jsonResponse.x === null || jsonResponse.y === null) {
         return { action: null, error: "MOVE requires x and y coordinates" };
       }
-      return {
-        action: {
-          type: "move",
-          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
-        },
-        error: null,
-      };
+      const legalMove = legalActions.find(
+        (la) =>
+          la.action.type === "move" &&
+          la.action.targetPosition.x === jsonResponse.x &&
+          la.action.targetPosition.y === jsonResponse.y
+      );
+      if (!legalMove) {
+        return {
+          action: null,
+          error: `MOVE to (${jsonResponse.x}, ${jsonResponse.y}) is not a legal action`,
+        };
+      }
+      return { action: legalMove.action, error: null };
     }
 
     case "MOVE_TO": {
@@ -794,6 +900,7 @@ function parseJsonAction(
           error: `MOVE_TO "${jsonResponse.target}" failed: target not found`,
         };
       }
+      const reachableTiles = getReachableTiles(world, character);
       const bestTile = findBestTileToward(
         targetPos,
         reachableTiles,
@@ -815,24 +922,18 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "ATTACK requires a target" };
       }
-      const target = knowledge.visible.characters.find(
-        (c) =>
-          c.character.name.toLowerCase() ===
-            jsonResponse.target!.toLowerCase() ||
-          c.character.name
-            .toLowerCase()
-            .includes(jsonResponse.target!.toLowerCase())
+      const legalAttack = legalActions.find(
+        (la) =>
+          la.action.type === "attack" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!target) {
+      if (!legalAttack) {
         return {
           action: null,
-          error: `ATTACK target "${jsonResponse.target}" not visible`,
+          error: `ATTACK target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      return {
-        action: { type: "attack", targetCharacterId: target.character.id },
-        error: null,
-      };
+      return { action: legalAttack.action, error: null };
     }
 
     case "TALK": {
@@ -842,26 +943,23 @@ function parseJsonAction(
       if (!jsonResponse.message) {
         return { action: null, error: "TALK requires a message" };
       }
-      const target = knowledge.visible.characters.find(
-        (c) =>
-          c.character.name.toLowerCase() ===
-            jsonResponse.target!.toLowerCase() ||
-          c.character.name
-            .toLowerCase()
-            .includes(jsonResponse.target!.toLowerCase())
+      const legalTalk = legalActions.find(
+        (la) =>
+          la.action.type === "talk" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!target) {
+      if (!legalTalk) {
         return {
           action: null,
-          error: `TALK target "${jsonResponse.target}" not visible`,
+          error: `TALK target "${jsonResponse.target}" is not a legal action`,
         };
       }
+      // Fill in the message from the AI response
       return {
         action: {
-          type: "talk",
-          targetCharacterId: target.character.id,
+          ...legalTalk.action,
           message: jsonResponse.message,
-        },
+        } as Action,
         error: null,
       };
     }
@@ -870,122 +968,108 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "SEARCH requires a target" };
       }
-      // Find chest feature on visible tiles
-      const chestTile = knowledge.visible.tiles.find(
-        (t) =>
-          t.feature?.type === "chest" &&
-          t.feature.name
-            .toLowerCase()
-            .includes(jsonResponse.target!.toLowerCase())
+      const legalSearch = legalActions.find(
+        (la) =>
+          la.action.type === "search_container" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!chestTile || chestTile.feature?.type !== "chest") {
+      if (!legalSearch) {
         return {
           action: null,
-          error: `SEARCH failed: Chest "${jsonResponse.target}" not found`,
+          error: `SEARCH target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      return {
-        action: {
-          type: "search_container",
-          targetFeatureId: chestTile.feature.id,
-        },
-        error: null,
-      };
+      return { action: legalSearch.action, error: null };
     }
 
     case "PICKUP": {
       if (!jsonResponse.target) {
         return { action: null, error: "PICKUP requires a target" };
       }
-      return {
-        action: {
-          type: "pick_up",
-          targetItemName: jsonResponse.target,
-        },
-        error: null,
-      };
+      const legalPickup = legalActions.find(
+        (la) =>
+          la.action.type === "pick_up" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
+      );
+      if (!legalPickup) {
+        return {
+          action: null,
+          error: `PICKUP target "${jsonResponse.target}" is not a legal action`,
+        };
+      }
+      return { action: legalPickup.action, error: null };
     }
 
     case "DROP": {
       if (!jsonResponse.target) {
         return { action: null, error: "DROP requires a target" };
       }
-      const item = knowledge.status.inventory.find((i) =>
-        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      const legalDrop = legalActions.find(
+        (la) =>
+          la.action.type === "drop" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!item) {
+      if (!legalDrop) {
         return {
           action: null,
-          error: `DROP failed: "${jsonResponse.target}" not in inventory`,
+          error: `DROP target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      return { action: { type: "drop", targetItemId: item.id }, error: null };
+      return { action: legalDrop.action, error: null };
     }
 
     case "EQUIP": {
       if (!jsonResponse.target) {
         return { action: null, error: "EQUIP requires a target" };
       }
-      const item = knowledge.status.inventory.find((i) =>
-        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      const legalEquip = legalActions.find(
+        (la) =>
+          la.action.type === "equip" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!item) {
+      if (!legalEquip) {
         return {
           action: null,
-          error: `EQUIP failed: "${jsonResponse.target}" not in inventory`,
+          error: `EQUIP target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      return {
-        action: { type: "equip", targetItemId: item.id },
-        error: null,
-      };
+      return { action: legalEquip.action, error: null };
     }
 
     case "UNEQUIP": {
       if (!jsonResponse.target) {
         return { action: null, error: "UNEQUIP requires a target" };
       }
-      const item = knowledge.status.inventory.find((i) =>
-        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      const legalUnequip = legalActions.find(
+        (la) =>
+          la.action.type === "unequip" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!item) {
+      if (!legalUnequip) {
         return {
           action: null,
-          error: `UNEQUIP failed: "${jsonResponse.target}" not in inventory`,
+          error: `UNEQUIP target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      return {
-        action: { type: "unequip", targetItemId: item.id },
-        error: null,
-      };
+      return { action: legalUnequip.action, error: null };
     }
 
     case "USE": {
       if (!jsonResponse.target) {
         return { action: null, error: "USE requires a target" };
       }
-      const usableItems = knowledge.status.inventory.filter(
-        (i) => i.useEffect !== undefined
+      const legalUse = legalActions.find(
+        (la) =>
+          la.action.type === "use" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (usableItems.length === 0) {
+      if (!legalUse) {
         return {
           action: null,
-          error: "USE failed: No usable items in inventory!",
+          error: `USE target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      const item = usableItems.find((i) =>
-        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
-      );
-      if (!item) {
-        return {
-          action: null,
-          error: `USE failed: "${jsonResponse.target}" not found or not usable`,
-        };
-      }
-      return {
-        action: { type: "use", targetItemId: item.id },
-        error: null,
-      };
+      return { action: legalUse.action, error: null };
     }
 
     case "PLACE": {
@@ -995,29 +1079,20 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "PLACE requires a target" };
       }
-      const trapsInInv = knowledge.status.inventory.filter(
-        (i) => i.type === "trap"
+      const legalPlace = legalActions.find(
+        (la) =>
+          la.action.type === "place" &&
+          la.action.targetPosition.x === jsonResponse.x &&
+          la.action.targetPosition.y === jsonResponse.y &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (trapsInInv.length === 0) {
-        return { action: null, error: "PLACE failed: No traps in inventory!" };
-      }
-      const item = trapsInInv.find((i) =>
-        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
-      );
-      if (!item) {
+      if (!legalPlace) {
         return {
           action: null,
-          error: `PLACE failed: "${jsonResponse.target}" not in inventory`,
+          error: `PLACE "${jsonResponse.target}" at (${jsonResponse.x}, ${jsonResponse.y}) is not a legal action`,
         };
       }
-      return {
-        action: {
-          type: "place",
-          targetItemId: item.id,
-          targetPosition: { x: jsonResponse.x, y: jsonResponse.y },
-        },
-        error: null,
-      };
+      return { action: legalPlace.action, error: null };
     }
 
     case "CONTRACT": {
@@ -1036,23 +1111,25 @@ function parseJsonAction(
           error: "CONTRACT expiry must be between 1 and 5 turns",
         };
       }
-      const contractTarget = world.characters.find(
-        (c) => c.name.toLowerCase() === jsonResponse.target!.toLowerCase()
+      const legalContract = legalActions.find(
+        (la) =>
+          la.action.type === "issue_contract" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!contractTarget) {
+      if (!legalContract) {
         return {
           action: null,
-          error: `CONTRACT failed: Character "${jsonResponse.target}" not found`,
+          error: `CONTRACT target "${jsonResponse.target}" is not a legal action`,
         };
       }
+      // Fill in the contract details from the AI response
       return {
         action: {
-          type: "issue_contract",
-          targetCharacterId: contractTarget.id,
-          contractContents: jsonResponse.terms!,
+          ...legalContract.action,
+          contractContents: jsonResponse.terms,
           contractExpiry: jsonResponse.expiry,
           message: jsonResponse.message || undefined,
-        },
+        } as Action,
         error: null,
       };
     }
@@ -1061,31 +1138,27 @@ function parseJsonAction(
       if (!jsonResponse.target) {
         return { action: null, error: "UNLOCK requires a door name" };
       }
-      // Find door feature on visible tiles
-      const doorTile = knowledge.visible.tiles.find(
-        (t) =>
-          t.feature?.type === "door" &&
-          t.feature.name
-            .toLowerCase()
-            .includes(jsonResponse.target!.toLowerCase())
+      const legalUnlock = legalActions.find(
+        (la) =>
+          la.action.type === "unlock" &&
+          matchesTarget(la.display.target as string, jsonResponse.target!)
       );
-      if (!doorTile || doorTile.feature?.type !== "door") {
+      if (!legalUnlock) {
         return {
           action: null,
-          error: `UNLOCK failed: Door "${jsonResponse.target}" not found`,
+          error: `UNLOCK target "${jsonResponse.target}" is not a legal action`,
         };
       }
-      return {
-        action: {
-          type: "unlock",
-          targetFeatureId: doorTile.feature.id,
-        },
-        error: null,
-      };
+      return { action: legalUnlock.action, error: null };
     }
 
-    case "WAIT":
-      return { action: { type: "wait" }, error: null };
+    case "WAIT": {
+      const legalWait = legalActions.find((la) => la.action.type === "wait");
+      if (!legalWait) {
+        return { action: null, error: "WAIT is not currently available" };
+      }
+      return { action: legalWait.action, error: null };
+    }
 
     default:
       return { action: null, error: `Unknown action: ${jsonResponse.action}` };
@@ -1249,7 +1322,7 @@ export async function getAgentDecision(
     }));
   const talkAction =
     talkableCharacters.length > 0
-      ? `- TALK: Speak to character within ${MAX_TALK_DISTANCE} tiles (works through bars). MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Available: ${talkableCharacters
+      ? `- TALK: Speak to character within ${MAX_TALK_DISTANCE} tiles (works through bars). MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Don't repeat something you've already said in prior turns: if you have nothing new to say, say nothing. Available: ${talkableCharacters
           .map((c) => `${c.name} (${c.dist} tiles)`)
           .join(", ")}. Does NOT end turn (max 1 conversation per turn).`
       : `- [UNAVAILABLE] TALK - No characters within ${MAX_TALK_DISTANCE} tiles.`;
@@ -1362,7 +1435,8 @@ What do you do?`;
       jsonResponse,
       knowledge,
       world,
-      character
+      character,
+      hasMoved
     );
 
     if (error) {
@@ -1652,7 +1726,7 @@ export async function judgeContract(
   const itemsList =
     allItems.length > 0 ? allItems.join("\n") : "(No items on map)";
 
-  const asciiMap = generateOmniscientMap(world);
+  const worldJson = generateOmniscientMapJson(world);
 
   const prompt = `You are the Great Judge, an all-seeing divine entity who enforces Blood Contracts.
 
@@ -1673,8 +1747,8 @@ ${allCharactersStatus}
 === ALL ITEMS ON MAP ===
 ${itemsList}
 
-=== MAP (Legend: # = wall, | = bars, D = door, C = chest, ^ = trap, . = floor, * = item, Letter = character) ===
-${asciiMap}
+=== WORLD STATE (JSON) ===
+${worldJson}
 
 Your task: Determine if either party violated the terms of the contract.
 
@@ -1764,7 +1838,7 @@ export async function processCustomEffect(
 
   const allCharactersStatus = formatCharactersStatus(world);
 
-  const asciiMap = generateOmniscientMap(world);
+  const worldJson = generateOmniscientMapJson(world);
 
   const prompt = `You are an effect processor for a game. A magical effect is being evaluated.
 
@@ -1782,8 +1856,8 @@ ${allCharactersStatus}
 === RECENT EVENTS ===
 ${eventLog || "(No events)"}
 
-=== MAP ===
-${asciiMap}
+=== WORLD STATE (JSON) ===
+${worldJson}
 
 Based on the condition above, determine what actions should occur.
 

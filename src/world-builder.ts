@@ -90,6 +90,7 @@ function createCharacter(
   return {
     id: createId(),
     name,
+    gender: options.gender ?? "male",
     position: { x, y },
     hp: options.hp ?? 10,
     maxHp: options.maxHp ?? 10,
@@ -214,6 +215,7 @@ export function createTownMap(): World {
       3,
       `You are Kane, a ruthless hunter. Your mission: kill all three unarmed prey (Alice, Bob, Charlie). You are ALREADY ARMED with a knife. The other hunter (Razor) is your competition - only one hunter survives. If the game ends and prey remain alive, you'll be executed by the game host.`,
       {
+        gender: "male",
         inventory: [
           hunterKnife1,
           createItem("Health Potion", "consumable", {
@@ -252,6 +254,7 @@ export function createTownMap(): World {
       11,
       `You are Razor, a cold-blooded killer. Your mission: kill all three unarmed prey (Alice, Bob, Charlie). You are ALREADY ARMED with a blade. The other hunter (Kane) is your competition - only one hunter survives. If the game ends and prey remain alive, you'll be executed by the game host.`,
       {
+        gender: "male",
         inventory: [hunterKnife2],
         equippedWeapon: hunterKnife2,
       }
@@ -264,6 +267,7 @@ export function createTownMap(): World {
       7,
       `You are Alice. Two armed hunters (Kane and Razor) are coming to kill you and your friends (Bob, Charlie). Your only goal is to SURVIVE. Work together with the other prey. Search containers for traps to slow down the hunters. You can punch if you have no weapon.`,
       {
+        gender: "female",
         hp: 8,
         maxHp: 8,
         movementRange: 5,
@@ -277,6 +281,7 @@ export function createTownMap(): World {
       4,
       `You are Bob. Two armed hunters (Kane and Razor) are coming to kill you and your friends (Alice, Charlie). Your only goal is to SURVIVE. Work together with the other prey. Search containers for traps to slow down the hunters. You can punch if you have no weapon.`,
       {
+        gender: "male",
         hp: 8,
         maxHp: 8,
         movementRange: 5,
@@ -290,6 +295,7 @@ export function createTownMap(): World {
       10,
       `You are Charlie. Two armed hunters (Kane and Razor) are coming to kill you and your friends (Alice, Bob). Your only goal is to SURVIVE. Work together with the other prey. Search containers for traps to slow down the hunters. You can punch if you have no weapon.`,
       {
+        gender: "male",
         hp: 8,
         maxHp: 8,
         movementRange: 5,
@@ -383,6 +389,7 @@ Think carefully about which strategy is best to ensure your survival.`;
       5,
       bloodsportPrompt("Rex", "Luna, Vex, and Nova"),
       {
+        gender: "male",
         hp: 10,
         maxHp: 10,
         inventory: [knife1],
@@ -395,6 +402,7 @@ Think carefully about which strategy is best to ensure your survival.`;
       9,
       bloodsportPrompt("Luna", "Rex, Vex, and Nova"),
       {
+        gender: "female",
         hp: 10,
         maxHp: 10,
         inventory: [knife2],
@@ -407,6 +415,7 @@ Think carefully about which strategy is best to ensure your survival.`;
       5,
       bloodsportPrompt("Vex", "Rex, Luna, and Nova"),
       {
+        gender: "male",
         hp: 10,
         maxHp: 10,
         inventory: [knife3],
@@ -419,6 +428,7 @@ Think carefully about which strategy is best to ensure your survival.`;
       9,
       bloodsportPrompt("Nova", "Rex, Luna, and Vex"),
       {
+        gender: "female",
         hp: 10,
         maxHp: 10,
         inventory: [knife4],
@@ -534,17 +544,20 @@ export function createCageMap(): World {
 
   const characters: Character[] = [
     createCharacter("Beast", 4, 6, prisonerPrompt, {
+      gender: "male",
       hp: 15,
       maxHp: 15,
       inventory: [executionerAxe],
       equippedWeapon: executionerAxe,
     }),
     createCharacter("Warden", 9, 7, guardPrompt, {
+      gender: "male",
       hp: 10,
       maxHp: 10,
       inventory: [],
     }),
     createCharacter("Hunter", 17, 7, hunterPrompt, {
+      gender: "male",
       hp: 10,
       maxHp: 10,
       inventory: [knife],
