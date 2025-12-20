@@ -284,11 +284,19 @@ describe("Traps", () => {
         duration: 5,
         preventsMovement: true,
         triggers: [
-          { on: "turn_start" as const, actions: [{ type: "damage" as const, amount: 3 }] },
+          {
+            on: "turn_start" as const,
+            actions: [{ type: "damage" as const, amount: 3 }],
+          },
           {
             on: "on_attack" as const,
             actions: [
-              { type: "modify_stat" as const, stat: "attack" as const, operation: "multiply" as const, value: 0.5 },
+              {
+                type: "modify_stat" as const,
+                stat: "attack" as const,
+                operation: "multiply" as const,
+                value: 0.5,
+              },
             ],
           },
         ],
@@ -367,11 +375,19 @@ describe("Traps", () => {
           duration: 5,
           preventsMovement: true,
           triggers: [
-            { on: "turn_start" as const, actions: [{ type: "damage" as const, amount: 3 }] },
+            {
+              on: "turn_start" as const,
+              actions: [{ type: "damage" as const, amount: 3 }],
+            },
             {
               on: "on_attack" as const,
               actions: [
-                { type: "modify_stat" as const, stat: "attack" as const, operation: "multiply" as const, value: 0.5 },
+                {
+                  type: "modify_stat" as const,
+                  stat: "attack" as const,
+                  operation: "multiply" as const,
+                  value: 0.5,
+                },
               ],
             },
           ],
