@@ -94,9 +94,31 @@ function createWorldFromSelection(mapType: MapType): World {
   }
 }
 
+const MAP_SELECTION_STORAGE_KEY = "ailand_selected_map";
+
 function getSelectedMap(): MapType {
   const select = document.getElementById("map-select") as HTMLSelectElement;
   return (select?.value as MapType) || "town";
+}
+
+function saveSelectedMap(mapType: MapType): void {
+  try {
+    localStorage.setItem(MAP_SELECTION_STORAGE_KEY, mapType);
+  } catch (e) {
+    console.warn("Failed to save map selection to localStorage", e);
+  }
+}
+
+function loadSelectedMap(): MapType {
+  try {
+    const saved = localStorage.getItem(MAP_SELECTION_STORAGE_KEY);
+    if (saved && ["town", "bloodsport", "cage", "custom"].includes(saved)) {
+      return saved as MapType;
+    }
+  } catch (e) {
+    console.warn("Failed to load map selection from localStorage", e);
+  }
+  return "town";
 }
 
 function restartGame(): void {
@@ -2689,7 +2711,25 @@ function showApiKeyPrompt(): void {
 }
 
 function init(): void {
-  world = createWorldFromSelection(getSelectedMap());
+  // Load saved map selection and set dropdown before creating world
+  const mapSelect = document.getElementById("map-select") as HTMLSelectElement;
+  let savedMap = loadSelectedMap();
+
+  // If custom map is selected but doesn't exist, fall back to town
+  if (savedMap === "custom") {
+    const customWorld = getCustomWorld();
+    if (!customWorld) {
+      savedMap = "town";
+    }
+  }
+
+  if (mapSelect) {
+    mapSelect.value = savedMap;
+  }
+
+  // Use savedMap directly instead of reading from dropdown to avoid timing issues
+  world = createWorldFromSelection(savedMap);
+  initialCharacterCount = world.characters.length;
 
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
@@ -2711,8 +2751,12 @@ function init(): void {
   const restartBtn = document.getElementById("restart-btn");
   restartBtn?.addEventListener("click", restartGame);
 
-  const mapSelect = document.getElementById("map-select") as HTMLSelectElement;
-  mapSelect?.addEventListener("change", restartGame);
+  // Save to localStorage when map changes
+  mapSelect?.addEventListener("change", () => {
+    const selectedMap = getSelectedMap();
+    saveSelectedMap(selectedMap);
+    restartGame();
+  });
 
   const nextTurnBtn = document.getElementById("next-turn-btn");
   nextTurnBtn?.addEventListener("click", () => {

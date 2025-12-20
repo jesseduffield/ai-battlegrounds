@@ -1980,7 +1980,21 @@ export function getCustomWorld() {
   if ((window as any).customWorld) {
     return (window as any).customWorld;
   }
-  // Otherwise, generate from current editor state
+
+  // Load editor state from storage if it hasn't been loaded yet
+  // (check if it's still the default empty state)
+  if (
+    editorState.characters.length === 0 &&
+    editorState.width === 20 &&
+    editorState.height === 15
+  ) {
+    const savedState = loadEditorStateFromStorage();
+    if (savedState) {
+      editorState = savedState;
+    }
+  }
+
+  // Generate from current editor state
   if (editorState && editorState.characters.length > 0) {
     return editorStateToWorld(editorState);
   }
