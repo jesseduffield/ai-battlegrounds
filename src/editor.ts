@@ -9,6 +9,7 @@ import type {
   Effect,
   EffectAction,
   Room,
+  ReasoningEffort,
 } from "./types";
 import { createId } from "./engine";
 
@@ -104,6 +105,7 @@ export function createCharacter(data: {
   hp: number;
   personalityPrompt: string;
   aiModel?: string;
+  aiModelReasoningEffort?: ReasoningEffort;
   inventory?: Item[];
   equippedWeapon?: Item;
   equippedClothing?: Item;
@@ -124,8 +126,8 @@ export function createCharacter(data: {
     viewDistance: 8,
     mapMemory: new Map(),
     effects: data.effects || [],
-    aiModel: (data.aiModel as any) || "gpt-4.1",
-    reasoningEffort: "none",
+    aiModel: (data.aiModel as any) || "gpt-5.2",
+    reasoningEffort: data.aiModelReasoningEffort || "medium",
   };
 }
 

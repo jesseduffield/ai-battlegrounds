@@ -862,6 +862,9 @@ function resetCharacterForm(): void {
   updateCharFormEquipmentDropdowns();
   (document.getElementById("char-name") as HTMLInputElement).value = "";
   (document.getElementById("char-hp") as HTMLInputElement).value = "20";
+  (
+    document.getElementById("char-reasoning-effort") as HTMLSelectElement
+  ).value = "medium";
   (document.getElementById("char-prompt") as HTMLTextAreaElement).value = "";
   const effectForm = document.getElementById("char-effect-form");
   if (effectForm) effectForm.style.display = "none";
@@ -1330,6 +1333,9 @@ function setupCharacterForm(): void {
     );
     const model = (document.getElementById("char-model") as HTMLSelectElement)
       .value;
+    const reasoningEffort = (
+      document.getElementById("char-reasoning-effort") as HTMLSelectElement
+    ).value as "none" | "low" | "medium" | "high";
     const prompt = (
       document.getElementById("char-prompt") as HTMLTextAreaElement
     ).value;
@@ -1355,6 +1361,7 @@ function setupCharacterForm(): void {
         existingChar.maxHp = hp;
         existingChar.hp = Math.min(existingChar.hp, hp);
         existingChar.aiModel = model as any;
+        existingChar.reasoningEffort = reasoningEffort;
         existingChar.personalityPrompt = prompt;
         existingChar.inventory = [...charFormInventory];
         existingChar.equippedWeapon = equippedWeapon
@@ -1388,6 +1395,7 @@ function setupCharacterForm(): void {
         hp,
         personalityPrompt: prompt,
         aiModel: model as string,
+        aiModelReasoningEffort: reasoningEffort,
         inventory: [...charFormInventory],
         equippedWeapon: equippedWeapon ? { ...equippedWeapon } : undefined,
         equippedClothing: equippedClothing
@@ -1941,6 +1949,9 @@ let editingCharacterId: string | null = null;
   );
   (document.getElementById("char-model") as HTMLSelectElement).value =
     character.aiModel;
+  (
+    document.getElementById("char-reasoning-effort") as HTMLSelectElement
+  ).value = character.reasoningEffort;
   (document.getElementById("char-prompt") as HTMLTextAreaElement).value =
     character.personalityPrompt;
 
