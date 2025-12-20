@@ -1173,7 +1173,7 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 
 AVAILABLE ACTIONS:
 ${moveAction}
-- ATTACK: Attack ADJACENT character (1 tile away, diagonal not allowed). Requires target name. Ends turn.
+- ATTACK: Attack ADJACENT character (1 tile away). Requires target name. Ends turn.
 ${talkAction}
 - SEARCH: Search adjacent container. Requires target (container name).
 ${pickupAction}
@@ -1184,7 +1184,6 @@ ${pickupAction}
 ${unlockAction}
 - DROP: Drop item from inventory. Requires target (item name).
 - CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
-- SIGN: Accept a Blood Contract being offered to you. Use during contract negotiation.
 - WAIT: End turn. No parameters.
 
 Respond with JSON:
