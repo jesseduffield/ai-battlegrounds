@@ -7,6 +7,9 @@ import type {
   BloodContract,
   GameEvent,
   Feature,
+  Item,
+  Effect,
+  EffectAction,
 } from "./types";
 import {
   getCharacterKnowledge,
@@ -175,77 +178,191 @@ function generateOmniscientMap(world: World): string {
   return lines.join("\n");
 }
 
-function generateAsciiMap(world: World, character: Character): string {
-  const lines: string[] = [];
+// Serialize an item with all its details
+function serializeItem(item: Item): Record<string, unknown> {
+  const data: Record<string, unknown> = {
+    name: item.name,
+    type: item.type,
+  };
 
-  let minX = world.width,
-    maxX = 0,
-    minY = world.height,
-    maxY = 0;
-  for (const key of character.mapMemory.keys()) {
+  if (item.damage !== undefined) {
+    data.damage = item.damage;
+  }
+  if (item.armor !== undefined) {
+    data.armor = item.armor;
+  }
+  if (item.useEffect) {
+    data.useEffect = serializeEffectAction(item.useEffect);
+  }
+  if (item.trapEffect) {
+    data.trapEffect = serializeEffect(item.trapEffect);
+  }
+  if (item.contract) {
+    data.contract = {
+      issuerName: item.contract.issuerName,
+      targetName: item.contract.targetName,
+      contents: item.contract.contents,
+      expiryTurn: item.contract.expiryTurn,
+      signed: item.contract.signed,
+    };
+  }
+  if (item.unlocksFeatureId) {
+    data.unlocksFeatureId = item.unlocksFeatureId;
+  }
+
+  return data;
+}
+
+// Serialize an effect action
+function serializeEffectAction(action: EffectAction): Record<string, unknown> {
+  if (action.type === "damage") {
+    return { type: "damage", amount: action.amount };
+  } else if (action.type === "heal") {
+    return { type: "heal", amount: action.amount };
+  } else if (action.type === "modify_stat") {
+    return {
+      type: "modify_stat",
+      stat: action.stat,
+      operation: action.operation,
+      value: action.value,
+    };
+  } else if (action.type === "message") {
+    return { type: "message", text: action.text };
+  } else if (action.type === "custom") {
+    return { type: "custom", prompt: action.prompt };
+  } else if (action.type === "apply_effect") {
+    return { type: "apply_effect", effect: serializeEffect(action.effect) };
+  }
+  return { type: "unknown" };
+}
+
+// Serialize an effect with all its details
+function serializeEffect(effect: Effect): Record<string, unknown> {
+  return {
+    name: effect.name,
+    duration: effect.duration,
+    preventsMovement: effect.preventsMovement ?? false,
+    triggers: effect.triggers.map((t) => ({
+      on: t.on,
+      actions: t.actions.map(serializeEffectAction),
+    })),
+  };
+}
+
+// Serialize a character with full details
+function serializeCharacter(char: Character): Record<string, unknown> {
+  const data: Record<string, unknown> = {
+    name: char.name,
+    alive: char.alive,
+    hp: char.hp,
+    maxHp: char.maxHp,
+  };
+
+  if (char.equippedWeapon) {
+    data.equippedWeapon = serializeItem(char.equippedWeapon);
+  }
+  if (char.equippedClothing) {
+    data.equippedClothing = serializeItem(char.equippedClothing);
+  }
+  if (char.effects.length > 0) {
+    data.effects = char.effects.map(serializeEffect);
+  }
+
+  return data;
+}
+
+function generateMapJson(world: World, character: Character): string {
+  // Build a flat list of explored tiles with full details
+  const tiles: Array<Record<string, unknown>> = [];
+
+  // Collect all characters visible in memory for enriched data
+  const visibleCharacters = new Map<string, Character>();
+  for (const char of world.characters) {
+    const key = `${char.position.x},${char.position.y}`;
+    if (character.mapMemory.has(key)) {
+      visibleCharacters.set(key, char);
+    }
+  }
+
+  for (const [key, memory] of character.mapMemory.entries()) {
     const [x, y] = key.split(",").map(Number);
-    minX = Math.min(minX, x);
-    maxX = Math.max(maxX, x);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  }
+    const worldTile = world.tiles[y]?.[x];
 
-  if (minX > maxX) {
-    return "No map explored yet.";
-  }
+    const tileData: Record<string, unknown> = {
+      x,
+      y,
+      terrain: memory.type,
+    };
 
-  const pad = 2;
-  minX = Math.max(0, minX - pad);
-  maxX = Math.min(world.width - 1, maxX + pad);
-  minY = Math.max(0, minY - pad);
-  maxY = Math.min(world.height - 1, maxY + pad);
+    // Feature details
+    if (memory.feature && worldTile?.feature) {
+      const feature = worldTile.feature;
+      const featureData: Record<string, unknown> = {
+        type: feature.type,
+        name: feature.name,
+      };
 
-  const header =
-    "   " +
-    Array.from({ length: maxX - minX + 1 }, (_, i) =>
-      ((minX + i) % 10).toString()
-    ).join("");
-  lines.push(header);
+      if (feature.type === "door") {
+        featureData.locked = feature.locked;
+        featureData.open = feature.open;
+      }
 
-  for (let y = minY; y <= maxY; y++) {
-    let row = y.toString().padStart(2, " ") + " ";
-    for (let x = minX; x <= maxX; x++) {
-      const key = `${x},${y}`;
-      const memory = character.mapMemory.get(key);
-
-      // Check for own traps on this tile (traps are visible to owner)
-      const tile = world.tiles[y]?.[x];
-      const ownTrap =
-        tile?.feature?.type === "trap" && tile.feature.ownerId === character.id;
-
-      if (x === character.position.x && y === character.position.y) {
-        row += "@";
-      } else if (ownTrap) {
-        row += "^";
-      } else if (memory) {
-        if (memory.characterName && memory.characterAlive) {
-          row += memory.characterName.charAt(0).toUpperCase();
-        } else if (memory.type === "wall") {
-          row += "#";
-        } else if (memory.type === "bars") {
-          row += "|";
-        } else if (memory.feature?.type === "door") {
-          row += "D";
-        } else if (memory.feature?.type === "chest") {
-          row += "C";
-        } else if (memory.items && memory.items.length > 0) {
-          row += "*";
-        } else {
-          row += ".";
+      if (feature.type === "chest") {
+        featureData.searched = feature.searched;
+        if (feature.contents.length > 0) {
+          featureData.contents = feature.contents.map(serializeItem);
         }
+      }
+
+      if (feature.type === "trap") {
+        if (feature.ownerId === character.id) {
+          featureData.ownTrap = true;
+        }
+        if (feature.appliesEffect) {
+          featureData.appliesEffect = serializeEffect(feature.appliesEffect);
+        }
+      }
+
+      tileData.feature = featureData;
+    }
+
+    // Items on tile - get full item details from world
+    if (worldTile?.items && worldTile.items.length > 0) {
+      tileData.items = worldTile.items.map(serializeItem);
+    }
+
+    // Character on tile with full details
+    if (memory.characterName) {
+      const charOnTile = visibleCharacters.get(key);
+      if (charOnTile && charOnTile.id !== character.id) {
+        tileData.character = serializeCharacter(charOnTile);
       } else {
-        row += "?";
+        tileData.character = {
+          name: memory.characterName,
+          alive: memory.characterAlive ?? false,
+        };
       }
     }
-    lines.push(row);
+
+    tiles.push(tileData);
   }
 
-  return lines.join("\n");
+  // Sort tiles by y then x for consistent ordering
+  tiles.sort((a, b) => {
+    const ay = a.y as number;
+    const by = b.y as number;
+    const ax = a.x as number;
+    const bx = b.x as number;
+    return ay === by ? ax - bx : ay - by;
+  });
+
+  const mapData = {
+    yourPosition: { x: character.position.x, y: character.position.y },
+    worldSize: { width: world.width, height: world.height },
+    exploredTiles: tiles,
+  };
+
+  return JSON.stringify(mapData, null, 2);
 }
 
 function formatKnowledge(
@@ -534,11 +651,8 @@ function formatKnowledge(
     }
   }
 
-  lines.push(`\n=== YOUR MAP (from memory) ===`);
-  lines.push(
-    `Legend: @ = you, # = wall, | = bars, D = door, C = chest, ^ = your trap, . = floor, * = item`
-  );
-  lines.push(generateAsciiMap(world, character));
+  lines.push(`\n=== YOUR MAP ===`);
+  lines.push(`\n${generateMapJson(world, character)}`);
 
   return lines.join("\n");
 }
