@@ -1,0 +1,620 @@
+// 16x16 Pixel Art Sprites
+// Each sprite is a 16x16 grid of hex colors (null = transparent)
+
+export type SpriteGrid = (number | null)[][];
+
+// Color constants for consistency
+const C = {
+  // Ground/stone
+  groundDark: 0x2a2522,
+  groundLight: 0x342e2a,
+  groundSpeckle: 0x1e1a18,
+
+  // Wall
+  wallMain: 0x4a4540,
+  wallTop: 0x5a5550,
+  wallDark: 0x3a3530,
+  wallLine: 0x2a2520,
+
+  // Water
+  waterMain: 0x2a4a6a,
+  waterLight: 0x3a5a7a,
+  waterHighlight: 0x4a6a8a,
+
+  // Grass
+  grassMain: 0x1a3a1a,
+  grassLight: 0x2a4a2a,
+  grassBlade: 0x3a5a3a,
+
+  // Bars
+  barMetal: 0x707070,
+  barDark: 0x505050,
+  barHighlight: 0x909090,
+
+  // Door
+  doorWood: 0x6a4a2a,
+  doorDark: 0x4a3a1a,
+  doorFrame: 0x3a2a10,
+  doorHandle: 0x8a6a3a,
+  doorBlue: 0x3a7ab8,
+  doorBlueDark: 0x2a5a88,
+  lockGold: 0xffd700,
+
+  // Chest
+  chestMain: 0x7a5a3a,
+  chestDark: 0x5a4a2a,
+  chestLid: 0x6a5030,
+  chestClasp: 0x8a7a4a,
+  chestSearched: 0x4a3a2a,
+  chestSearchedLid: 0x3a2a1a,
+
+  // Trap
+  trapBase: 0x8b4513,
+  trapTeeth: 0x666666,
+  trapDark: 0x5a3010,
+
+  // Character skin
+  skin: 0xe8c4a0,
+  skinShadow: 0xc9a080,
+
+  // Character body (template - will be replaced)
+  bodyMain: 0xff0000,      // Primary body color (placeholder)
+  bodyAccent: 0xff8888,    // Accent color (placeholder)
+  bodyDark: 0xcc0000,      // Darker shade (placeholder)
+
+  // Dead character
+  deadMain: 0x4a3535,
+  deadDark: 0x3a2525,
+  deadBlood: 0x6a2020,
+
+  // Shoes/boots
+  boots: 0x1a1a1a,
+
+  // Weapon
+  weaponBlade: 0xc0c0c0,
+  weaponBladeLight: 0xe0e0e0,
+  weaponHandle: 0x6a4a2a,
+  weaponGuard: 0xffd700,
+
+  // Items
+  potionGlass: 0x88aacc,
+  potionLiquid: 0xff4444,
+  potionHighlight: 0xffffff,
+  keyGold: 0xffd700,
+  keyDark: 0xb8960a,
+  scrollPaper: 0xf5e6c8,
+  scrollDark: 0xd4c4a8,
+  clothingPurple: 0x6a4a8a,
+  clothingLight: 0x8a6aaa,
+};
+
+// Helper to create a filled row
+const row = (color: number | null, count: number = 16): (number | null)[] =>
+  Array(count).fill(color);
+
+// ============= TILE SPRITES =============
+
+export const SPRITE_GROUND: SpriteGrid = [
+  row(C.groundDark),
+  [C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark,C.groundDark],
+  row(C.groundDark),
+  row(C.groundDark),
+  [C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark],
+  row(C.groundDark),
+  [C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark],
+  row(C.groundDark),
+  row(C.groundDark),
+  [C.groundDark,C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark],
+  row(C.groundDark),
+  row(C.groundDark),
+  [C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundSpeckle,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark,C.groundDark],
+  row(C.groundDark),
+  row(C.groundDark),
+  row(C.groundDark),
+];
+
+export const SPRITE_WALL: SpriteGrid = [
+  row(C.wallTop),
+  row(C.wallTop),
+  [C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark],
+  [C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark],
+  [C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark],
+  [C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark],
+  [C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark],
+  row(C.wallDark),
+  [C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain],
+  [C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain],
+  [C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain],
+  [C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain],
+  [C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain],
+  [C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallMain,C.wallDark,C.wallMain,C.wallMain,C.wallMain,C.wallMain],
+  row(C.wallDark),
+  row(C.wallLine),
+];
+
+export const SPRITE_WATER: SpriteGrid = [
+  row(C.waterMain),
+  [C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain],
+  [C.waterMain,C.waterLight,C.waterHighlight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterHighlight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain],
+  [C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain],
+  row(C.waterMain),
+  row(C.waterMain),
+  [C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain],
+  [C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterHighlight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterHighlight,C.waterLight,C.waterMain,C.waterMain],
+  [C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain],
+  row(C.waterMain),
+  row(C.waterMain),
+  [C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain],
+  [C.waterMain,C.waterLight,C.waterHighlight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterHighlight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain],
+  [C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterLight,C.waterLight,C.waterMain,C.waterMain,C.waterMain,C.waterMain,C.waterMain],
+  row(C.waterMain),
+  row(C.waterMain),
+];
+
+export const SPRITE_GRASS: SpriteGrid = [
+  [C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain],
+  row(C.grassMain),
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain],
+  [C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain],
+  [C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain],
+  row(C.grassMain),
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassBlade,C.grassMain,C.grassMain,C.grassMain],
+  [C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassMain,C.grassLight,C.grassMain,C.grassMain,C.grassMain],
+  row(C.grassMain),
+];
+
+export const SPRITE_BARS: SpriteGrid = (() => {
+  const grid: SpriteGrid = [];
+  for (let y = 0; y < 16; y++) {
+    const row: (number | null)[] = [];
+    for (let x = 0; x < 16; x++) {
+      // Horizontal bars at top and bottom
+      if (y === 1 || y === 2 || y === 13 || y === 14) {
+        row.push(C.barMetal);
+      }
+      // Vertical bars at x = 2, 6, 10, 14
+      else if (x === 2 || x === 6 || x === 10 || x === 14) {
+        row.push(x === 2 || x === 10 ? C.barHighlight : C.barMetal);
+      }
+      // Highlight on left edge of bars
+      else if (x === 1 || x === 5 || x === 9 || x === 13) {
+        row.push(C.barDark);
+      }
+      else {
+        row.push(C.groundDark);
+      }
+    }
+    grid.push(row);
+  }
+  return grid;
+})();
+
+// ============= FEATURE SPRITES =============
+
+export const SPRITE_DOOR_CLOSED: SpriteGrid = [
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorHandle,C.doorHandle,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorHandle,C.doorHandle,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorDark,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorWood,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorDark,C.doorFrame,C.doorFrame,C.doorFrame],
+];
+
+export const SPRITE_DOOR_LOCKED: SpriteGrid = [
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,null,C.lockGold,C.lockGold,null,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,C.lockGold,C.lockGold,C.lockGold,C.lockGold,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,C.lockGold,C.lockGold,C.lockGold,C.lockGold,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.lockGold,C.lockGold,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlueDark,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorBlue,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorBlueDark,C.doorFrame,C.doorFrame,C.doorFrame],
+];
+
+export const SPRITE_DOOR_OPEN: SpriteGrid = [
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+  [C.doorFrame,C.doorFrame,C.doorFrame,null,null,null,null,null,null,null,null,null,null,C.doorFrame,C.doorFrame,C.doorFrame],
+];
+
+export const SPRITE_CHEST: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,C.chestDark,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestLid,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestClasp,C.chestClasp,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestClasp,C.chestClasp,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestMain,C.chestDark,null,null],
+  [null,null,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,C.chestDark,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+export const SPRITE_CHEST_SEARCHED: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,C.chestSearchedLid,C.chestSearchedLid,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,C.chestSearched,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearchedLid,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,C.chestSearched,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+export const SPRITE_TRAP: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,null,null,null],
+  [null,null,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,null,null,null],
+  [null,null,null,C.trapBase,C.trapTeeth,C.trapBase,C.trapBase,C.trapTeeth,C.trapBase,C.trapBase,C.trapTeeth,C.trapBase,null,null,null,null],
+  [null,null,null,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,null,null,null,null],
+  [null,null,null,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,C.trapBase,null,null,null,null],
+  [null,null,null,C.trapDark,C.trapTeeth,C.trapDark,C.trapDark,C.trapTeeth,C.trapDark,C.trapDark,C.trapTeeth,C.trapDark,null,null,null,null],
+  [null,null,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,null,null,null],
+  [null,null,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,C.trapTeeth,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+// ============= CHARACTER SPRITES =============
+// These use placeholder colors that get replaced at runtime
+
+// Template character - unarmed (standing figure)
+export const SPRITE_CHARACTER_UNARMED: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,C.skin,C.skin,C.skin,C.skin,null,null,null,null,null,null],
+  [null,null,null,null,null,null,C.skin,C.skin,C.skin,C.skin,null,null,null,null,null,null],
+  [null,null,null,null,null,null,C.skinShadow,C.skin,C.skin,C.skinShadow,null,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyAccent,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyAccent,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,null,null,null,null,null],
+  [null,null,null,null,C.skin,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.skin,null,null,null,null],
+  [null,null,null,null,C.skin,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.skin,null,null,null,null],
+  [null,null,null,null,null,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyDark,C.bodyDark,null,null,C.bodyDark,C.bodyDark,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyDark,C.bodyDark,null,null,C.bodyDark,C.bodyDark,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyDark,C.bodyDark,null,null,C.bodyDark,C.bodyDark,null,null,null,null,null],
+  [null,null,null,null,null,C.boots,C.boots,null,null,C.boots,C.boots,null,null,null,null,null],
+  [null,null,null,null,null,C.boots,C.boots,null,null,C.boots,C.boots,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+// Template character - armed (with sword)
+export const SPRITE_CHARACTER_ARMED: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,C.skin,C.skin,C.skin,C.skin,null,null,C.weaponBladeLight,null,null,null],
+  [null,null,null,null,null,null,C.skin,C.skin,C.skin,C.skin,null,null,C.weaponBlade,null,null,null],
+  [null,null,null,null,null,null,C.skinShadow,C.skin,C.skin,C.skinShadow,null,null,C.weaponBlade,null,null,null],
+  [null,null,null,null,null,C.bodyAccent,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyAccent,null,C.weaponBlade,null,null,null],
+  [null,null,null,null,null,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,null,C.weaponGuard,null,null,null],
+  [null,null,null,null,C.skin,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.skin,C.weaponHandle,null,null,null],
+  [null,null,null,null,C.skin,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.skin,C.weaponHandle,null,null,null],
+  [null,null,null,null,null,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,C.bodyMain,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyDark,C.bodyDark,null,null,C.bodyDark,C.bodyDark,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyDark,C.bodyDark,null,null,C.bodyDark,C.bodyDark,null,null,null,null,null],
+  [null,null,null,null,null,C.bodyDark,C.bodyDark,null,null,C.bodyDark,C.bodyDark,null,null,null,null,null],
+  [null,null,null,null,null,C.boots,C.boots,null,null,C.boots,C.boots,null,null,null,null,null],
+  [null,null,null,null,null,C.boots,C.boots,null,null,C.boots,C.boots,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+// Dead character - fallen body
+export const SPRITE_CHARACTER_DEAD: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,C.skin,C.skin,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,C.deadBlood,C.skin,C.skin,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadDark,C.deadDark,null,null,null],
+  [null,C.deadBlood,C.deadBlood,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadDark,C.boots,C.boots,null,null],
+  [null,null,C.deadBlood,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadMain,C.deadDark,C.deadDark,C.boots,C.boots,null,null,null,null],
+  [null,null,null,null,C.skin,C.skin,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+// ============= ITEM SPRITES =============
+
+export const SPRITE_ITEM_WEAPON: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,C.weaponBladeLight,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,C.weaponBladeLight,C.weaponBlade,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,C.weaponBladeLight,C.weaponBlade,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,C.weaponBladeLight,C.weaponBlade,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,C.weaponBladeLight,C.weaponBlade,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,C.weaponBladeLight,C.weaponBlade,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.weaponBladeLight,C.weaponBlade,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,C.weaponGuard,C.weaponGuard,C.weaponGuard,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.weaponHandle,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.weaponHandle,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.weaponHandle,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.weaponHandle,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+export const SPRITE_ITEM_CONSUMABLE: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.potionGlass,C.potionGlass,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,C.potionGlass,C.potionGlass,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,C.potionGlass,C.potionGlass,C.potionGlass,C.potionGlass,null,null,null,null,null,null],
+  [null,null,null,null,null,C.potionGlass,C.potionHighlight,C.potionLiquid,C.potionLiquid,C.potionGlass,C.potionGlass,null,null,null,null,null],
+  [null,null,null,null,null,C.potionGlass,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionGlass,null,null,null,null,null],
+  [null,null,null,null,null,C.potionGlass,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionGlass,null,null,null,null,null],
+  [null,null,null,null,null,C.potionGlass,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionGlass,null,null,null,null,null],
+  [null,null,null,null,null,C.potionGlass,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionGlass,null,null,null,null,null],
+  [null,null,null,null,null,C.potionGlass,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionLiquid,C.potionGlass,null,null,null,null,null],
+  [null,null,null,null,null,null,C.potionGlass,C.potionGlass,C.potionGlass,C.potionGlass,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+export const SPRITE_ITEM_KEY: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,C.keyGold,C.keyGold,C.keyGold,null,null,null,null,null,null,null,null],
+  [null,null,null,null,C.keyGold,C.keyDark,C.keyDark,C.keyDark,C.keyGold,null,null,null,null,null,null,null],
+  [null,null,null,null,C.keyGold,C.keyDark,null,C.keyDark,C.keyGold,null,null,null,null,null,null,null],
+  [null,null,null,null,C.keyGold,C.keyGold,C.keyGold,C.keyGold,C.keyGold,C.keyGold,C.keyGold,C.keyGold,C.keyGold,null,null,null],
+  [null,null,null,null,null,null,null,C.keyGold,null,null,null,C.keyGold,null,null,null,null],
+  [null,null,null,null,null,null,null,C.keyGold,null,null,null,C.keyGold,null,null,null,null],
+  [null,null,null,null,null,null,null,C.keyGold,C.keyGold,C.keyGold,C.keyGold,C.keyGold,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+export const SPRITE_ITEM_TRAP: SpriteGrid = SPRITE_TRAP; // Same as placed trap
+
+export const SPRITE_ITEM_CLOTHING: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,C.clothingLight,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingLight,null,null,null],
+  [null,null,null,C.clothingLight,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingLight,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,C.clothingPurple,C.clothingPurple,C.clothingPurple,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+export const SPRITE_ITEM_CONTRACT: SpriteGrid = [
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollDark,C.scrollDark,C.scrollDark,C.scrollDark,null,null,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,C.scrollPaper,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+  [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+];
+
+// ============= SPRITE RENDERING =============
+
+// Cache for rendered sprites
+const spriteCache: Map<string, HTMLCanvasElement> = new Map();
+
+// Render a sprite grid to a canvas
+export function renderSpriteToCanvas(sprite: SpriteGrid): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext("2d")!;
+  const imageData = ctx.createImageData(16, 16);
+  const data = imageData.data;
+
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const color = sprite[y][x];
+      const idx = (y * 16 + x) * 4;
+      if (color === null) {
+        data[idx] = 0;
+        data[idx + 1] = 0;
+        data[idx + 2] = 0;
+        data[idx + 3] = 0; // Transparent
+      } else {
+        data[idx] = (color >> 16) & 0xff;     // R
+        data[idx + 1] = (color >> 8) & 0xff;  // G
+        data[idx + 2] = color & 0xff;         // B
+        data[idx + 3] = 255;                   // A
+      }
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+// Render a character sprite with custom colors
+export function renderCharacterSprite(
+  template: SpriteGrid,
+  bodyColor: number,
+  accentColor: number
+): HTMLCanvasElement {
+  // Calculate darker shade of body color
+  const darken = (color: number, amount: number): number => {
+    const r = Math.max(0, ((color >> 16) & 0xff) - amount);
+    const g = Math.max(0, ((color >> 8) & 0xff) - amount);
+    const b = Math.max(0, (color & 0xff) - amount);
+    return (r << 16) | (g << 8) | b;
+  };
+
+  const bodyDark = darken(bodyColor, 40);
+
+  // Create a copy with replaced colors
+  const colored: SpriteGrid = template.map(row =>
+    row.map(pixel => {
+      if (pixel === C.bodyMain) return bodyColor;
+      if (pixel === C.bodyAccent) return accentColor;
+      if (pixel === C.bodyDark) return bodyDark;
+      return pixel;
+    })
+  );
+
+  return renderSpriteToCanvas(colored);
+}
+
+// Get or create a cached sprite
+export function getSprite(name: string): HTMLCanvasElement {
+  if (spriteCache.has(name)) {
+    return spriteCache.get(name)!;
+  }
+
+  let canvas: HTMLCanvasElement;
+
+  switch (name) {
+    case "ground": canvas = renderSpriteToCanvas(SPRITE_GROUND); break;
+    case "wall": canvas = renderSpriteToCanvas(SPRITE_WALL); break;
+    case "water": canvas = renderSpriteToCanvas(SPRITE_WATER); break;
+    case "grass": canvas = renderSpriteToCanvas(SPRITE_GRASS); break;
+    case "bars": canvas = renderSpriteToCanvas(SPRITE_BARS); break;
+    case "door_closed": canvas = renderSpriteToCanvas(SPRITE_DOOR_CLOSED); break;
+    case "door_locked": canvas = renderSpriteToCanvas(SPRITE_DOOR_LOCKED); break;
+    case "door_open": canvas = renderSpriteToCanvas(SPRITE_DOOR_OPEN); break;
+    case "chest": canvas = renderSpriteToCanvas(SPRITE_CHEST); break;
+    case "chest_searched": canvas = renderSpriteToCanvas(SPRITE_CHEST_SEARCHED); break;
+    case "trap": canvas = renderSpriteToCanvas(SPRITE_TRAP); break;
+    case "character_dead": canvas = renderSpriteToCanvas(SPRITE_CHARACTER_DEAD); break;
+    case "item_weapon": canvas = renderSpriteToCanvas(SPRITE_ITEM_WEAPON); break;
+    case "item_consumable": canvas = renderSpriteToCanvas(SPRITE_ITEM_CONSUMABLE); break;
+    case "item_key": canvas = renderSpriteToCanvas(SPRITE_ITEM_KEY); break;
+    case "item_trap": canvas = renderSpriteToCanvas(SPRITE_ITEM_TRAP); break;
+    case "item_clothing": canvas = renderSpriteToCanvas(SPRITE_ITEM_CLOTHING); break;
+    case "item_contract": canvas = renderSpriteToCanvas(SPRITE_ITEM_CONTRACT); break;
+    default:
+      // Return empty canvas for unknown sprites
+      canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+  }
+
+  spriteCache.set(name, canvas);
+  return canvas;
+}
+
+// Get a character sprite with specific colors
+export function getCharacterSprite(
+  bodyColor: number,
+  accentColor: number,
+  armed: boolean
+): HTMLCanvasElement {
+  const key = `char_${bodyColor.toString(16)}_${accentColor.toString(16)}_${armed ? "armed" : "unarmed"}`;
+
+  if (spriteCache.has(key)) {
+    return spriteCache.get(key)!;
+  }
+
+  const template = armed ? SPRITE_CHARACTER_ARMED : SPRITE_CHARACTER_UNARMED;
+  const canvas = renderCharacterSprite(template, bodyColor, accentColor);
+  spriteCache.set(key, canvas);
+  return canvas;
+}
+
+// Parse hex color string to number
+export function parseColor(color: string): number {
+  if (color.startsWith("#")) {
+    return parseInt(color.slice(1), 16);
+  }
+  return parseInt(color, 16);
+}
+
+// Pre-render all static sprites (call this on startup)
+export function initSprites(): void {
+  const staticSprites = [
+    "ground", "wall", "water", "grass", "bars",
+    "door_closed", "door_locked", "door_open",
+    "chest", "chest_searched", "trap",
+    "character_dead",
+    "item_weapon", "item_consumable", "item_key", "item_trap", "item_clothing", "item_contract"
+  ];
+
+  for (const name of staticSprites) {
+    getSprite(name);
+  }
+}
+

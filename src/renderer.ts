@@ -6,36 +6,26 @@ import type {
   Item,
   Feature,
 } from "./types";
+import {
+  initSprites,
+  getSprite,
+  getCharacterSprite,
+  parseColor,
+} from "./sprites";
 
 export const TILE_SIZE = 32;
 
 const COLORS = {
-  ground: "#2a2522",
-  groundPattern: "#242120",
-  wall: "#4a4540",
-  wallTop: "#5a5550",
-  door: "#6a4a2a",
-  doorFrame: "#4a3a1a",
-  grass: "#1a3a1a",
-  grassPattern: "#1a4a1a",
   grid: "rgba(255, 255, 255, 0.03)",
-  characterDead: "#6a3030",
-  characterOutline: "#000",
-  item: "#4a8aaa",
-  weapon: "#aa4a4a",
-  container: "#7a5a3a",
-  containerSearched: "#5a4a2a",
   highlight: "rgba(68, 136, 255, 0.3)",
   reachable: "rgba(100, 200, 100, 0.25)",
   attackRange: "rgba(255, 100, 100, 0.3)",
   visible: "rgba(255, 255, 200, 0.08)",
   notVisible: "rgba(0, 0, 0, 0.5)",
-  trap: "#8B4513",
-  trapTeeth: "#666",
-  bars: "#707070",
-  blueDoor: "#3a7ab8",
-  blueDoorFrame: "#2a5a88",
 };
+
+// Initialize sprites once
+initSprites();
 
 const CHARACTER_COLORS: Record<string, { body: string; accent: string }> = {
   // Hunt map
@@ -207,65 +197,29 @@ function drawTile(
   const px = x * TILE_SIZE;
   const py = y * TILE_SIZE;
 
+  let spriteName: string;
   switch (type) {
     case "ground":
-      ctx.fillStyle = COLORS.ground;
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = COLORS.groundPattern;
-      for (let i = 0; i < 3; i++) {
-        const dx = ((x * 7 + i * 13) % 20) + 6;
-        const dy = ((y * 11 + i * 17) % 20) + 6;
-        ctx.fillRect(px + dx, py + dy, 2, 2);
-      }
+      spriteName = "ground";
       break;
-
     case "wall":
-      ctx.fillStyle = COLORS.wall;
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = COLORS.wallTop;
-      ctx.fillRect(px, py, TILE_SIZE, 4);
-      ctx.strokeStyle = "#3a3530";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px + 0.5, py + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+      spriteName = "wall";
       break;
-
     case "water":
-      ctx.fillStyle = "#2a4a6a";
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = "#3a5a7a";
-      for (let i = 0; i < 3; i++) {
-        const dx = ((x * 7 + i * 13) % 20) + 6;
-        const dy = ((y * 11 + i * 17) % 20) + 6;
-        ctx.fillRect(px + dx, py + dy, 4, 2);
-      }
+      spriteName = "water";
       break;
-
     case "grass":
-      ctx.fillStyle = COLORS.grass;
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      ctx.fillStyle = COLORS.grassPattern;
-      for (let i = 0; i < 5; i++) {
-        const dx = ((x * 7 + i * 11) % 24) + 4;
-        const dy = ((y * 13 + i * 19) % 24) + 4;
-        ctx.fillRect(px + dx, py + dy, 1, 4);
-      }
+      spriteName = "grass";
       break;
-
     case "bars":
-      // Draw ground behind bars
-      ctx.fillStyle = COLORS.ground;
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-      // Draw vertical bars
-      ctx.fillStyle = COLORS.bars;
-      for (let i = 0; i < 4; i++) {
-        const barX = px + 4 + i * 8;
-        ctx.fillRect(barX, py, 3, TILE_SIZE);
-      }
-      // Draw horizontal bar at top and bottom
-      ctx.fillRect(px, py + 2, TILE_SIZE, 2);
-      ctx.fillRect(px, py + TILE_SIZE - 4, TILE_SIZE, 2);
+      spriteName = "bars";
       break;
+    default:
+      spriteName = "ground";
   }
+
+  const sprite = getSprite(spriteName);
+  ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
 }
 
 function drawFeature(
@@ -277,51 +231,31 @@ function drawFeature(
   const px = x * TILE_SIZE;
   const py = y * TILE_SIZE;
 
+  let spriteName: string | null = null;
+
   switch (feature.type) {
     case "door":
       if (feature.open) {
-        // Open door - just show door frame
-        ctx.fillStyle = COLORS.doorFrame;
-        ctx.fillRect(px, py, 4, TILE_SIZE);
-        ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
+        spriteName = "door_open";
+      } else if (feature.locked) {
+        spriteName = "door_locked";
       } else {
-        // Closed door
-        ctx.fillStyle = COLORS.doorFrame;
-        ctx.fillRect(px, py, 4, TILE_SIZE);
-        ctx.fillRect(px + TILE_SIZE - 4, py, 4, TILE_SIZE);
-        ctx.fillStyle = feature.locked ? COLORS.blueDoor : COLORS.door;
-        ctx.fillRect(px + 4, py + 2, TILE_SIZE - 8, TILE_SIZE - 4);
-        if (feature.locked) {
-          // Draw lock symbol
-          ctx.fillStyle = "#ffd700";
-          ctx.fillRect(px + TILE_SIZE / 2 - 3, py + TILE_SIZE / 2 - 2, 6, 4);
-          ctx.fillRect(px + TILE_SIZE / 2 - 2, py + TILE_SIZE / 2 - 5, 4, 3);
-        } else {
-          // Door handle
-          ctx.fillStyle = "#8a6a3a";
-          ctx.fillRect(px + TILE_SIZE - 10, py + TILE_SIZE / 2 - 2, 3, 4);
-        }
+        spriteName = "door_closed";
       }
       break;
 
     case "chest":
-      // Draw chest
-      ctx.fillStyle = feature.searched
-        ? COLORS.containerSearched
-        : COLORS.container;
-      ctx.fillRect(px + 4, py + 8, TILE_SIZE - 8, TILE_SIZE - 12);
-      // Chest lid
-      ctx.fillStyle = feature.searched ? "#4a3a1a" : "#5a4a2a";
-      ctx.fillRect(px + 2, py + 6, TILE_SIZE - 4, 6);
-      // Chest lock/clasp
-      ctx.fillStyle = "#8a7a4a";
-      ctx.fillRect(px + TILE_SIZE / 2 - 2, py + 10, 4, 3);
+      spriteName = feature.searched ? "chest_searched" : "chest";
       break;
 
     case "trap":
-      // Don't draw traps - they're invisible to players!
-      // Traps are only visible to their owner (handled elsewhere)
+      spriteName = "trap";
       break;
+  }
+
+  if (spriteName) {
+    const sprite = getSprite(spriteName);
+    ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
   }
 }
 
@@ -494,250 +428,34 @@ function drawAliveCharacter(
   colors: { body: string; accent: string },
   character: Character
 ): void {
-  const bodyGradient = ctx.createLinearGradient(px - 6, py, px + 6, py);
-  bodyGradient.addColorStop(0, shadeColor(colors.body, -20));
-  bodyGradient.addColorStop(0.5, colors.body);
-  bodyGradient.addColorStop(1, shadeColor(colors.body, -30));
+  const bodyColor = parseColor(colors.body);
+  const accentColor = parseColor(colors.accent);
+  const armed = !!character.equippedWeapon;
 
-  ctx.fillStyle = shadeColor(colors.body, -40);
-  ctx.beginPath();
-  ctx.ellipse(px, py + 13, 5, 2, 0, 0, Math.PI * 2);
-  ctx.fill();
+  const sprite = getCharacterSprite(bodyColor, accentColor, armed);
 
-  ctx.fillStyle = bodyGradient;
-  ctx.beginPath();
-  ctx.moveTo(px - 5, py + 1);
-  ctx.lineTo(px + 5, py + 1);
-  ctx.lineTo(px + 6, py + 10);
-  ctx.lineTo(px - 6, py + 10);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = shadeColor(colors.body, -40);
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = colors.accent;
-  ctx.fillRect(px - 4, py + 1, 8, 2);
-
-  ctx.fillStyle = shadeColor(colors.body, -10);
-  ctx.beginPath();
-  ctx.moveTo(px - 5, py + 10);
-  ctx.lineTo(px - 3, py + 10);
-  ctx.lineTo(px - 4, py + 14);
-  ctx.lineTo(px - 6, py + 14);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.moveTo(px + 5, py + 10);
-  ctx.lineTo(px + 3, py + 10);
-  ctx.lineTo(px + 4, py + 14);
-  ctx.lineTo(px + 6, py + 14);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = "#1a1a1a";
-  ctx.fillRect(px - 6, py + 13, 4, 2);
-  ctx.fillRect(px + 2, py + 13, 4, 2);
-
-  const skinTone = "#e8c4a0";
-  const skinShadow = "#c9a080";
-
-  ctx.fillStyle = skinTone;
-  ctx.beginPath();
-  ctx.arc(px - 8, py + 5, 2, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = skinShadow;
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(px - 6, py + 2);
-  ctx.lineTo(px - 8, py + 5);
-  ctx.stroke();
-
-  if (character.equippedWeapon) {
-    ctx.beginPath();
-    ctx.moveTo(px + 6, py + 2);
-    ctx.lineTo(px + 9, py + 4);
-    ctx.stroke();
-    drawWeapon(ctx, px + 9, py + 4, colors.accent);
-  } else {
-    ctx.fillStyle = skinTone;
-    ctx.beginPath();
-    ctx.arc(px + 8, py + 5, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = skinShadow;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(px + 6, py + 2);
-    ctx.lineTo(px + 8, py + 5);
-    ctx.stroke();
-  }
-
-  const headGradient = ctx.createRadialGradient(
-    px - 2,
-    py - 5,
-    0,
-    px,
-    py - 3,
-    8
-  );
-  headGradient.addColorStop(0, colors.accent);
-  headGradient.addColorStop(0.7, colors.body);
-  headGradient.addColorStop(1, shadeColor(colors.body, -30));
-
-  ctx.fillStyle = headGradient;
-  ctx.beginPath();
-  ctx.ellipse(px, py - 3, 7, 6, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.strokeStyle = shadeColor(colors.body, -40);
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  ctx.fillStyle = "#fff";
-  ctx.beginPath();
-  ctx.arc(px - 2, py - 4, 1.5, 0, Math.PI * 2);
-  ctx.arc(px + 2, py - 4, 1.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#111";
-  ctx.beginPath();
-  ctx.arc(px - 2, py - 4, 0.8, 0, Math.PI * 2);
-  ctx.arc(px + 2, py - 4, 0.8, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  ctx.beginPath();
-  ctx.arc(px - 2.5, py - 4.5, 0.4, 0, Math.PI * 2);
-  ctx.arc(px + 1.5, py - 4.5, 0.4, 0, Math.PI * 2);
-  ctx.fill();
+  // Draw sprite centered on character position
+  // 16x16 sprite, scaled to 32x32
+  ctx.drawImage(sprite, px - 16, py - 16, 32, 32);
 }
 
 function drawDeadCharacter(
   ctx: CanvasRenderingContext2D,
   px: number,
   py: number,
-  colors: { body: string; accent: string }
+  _colors: { body: string; accent: string }
 ): void {
-  ctx.fillStyle = "rgba(80, 20, 20, 0.4)";
-  ctx.beginPath();
-  ctx.ellipse(px, py + 8, 10, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
+  const sprite = getSprite("character_dead");
 
-  ctx.save();
-  ctx.translate(px, py + 4);
-  ctx.rotate(Math.PI / 2);
-
-  ctx.fillStyle = colors.body;
-  ctx.beginPath();
-  ctx.moveTo(-5, -5);
-  ctx.lineTo(5, -5);
-  ctx.lineTo(6, 4);
-  ctx.lineTo(-6, 4);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = colors.body;
-  ctx.beginPath();
-  ctx.ellipse(0, -8, 5, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-
-  ctx.strokeStyle = "#5a2020";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(px - 3, py);
-  ctx.lineTo(px - 1, py + 2);
-  ctx.lineTo(px + 1, py);
-  ctx.lineTo(px + 3, py + 2);
-  ctx.stroke();
-
-  ctx.fillStyle = "#8b0000";
-  ctx.globalAlpha = 0.6;
-  ctx.beginPath();
-  ctx.ellipse(px + 5, py + 6, 4, 2, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = 1;
-}
-
-function drawWeapon(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  accentColor: string
-): void {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(Math.PI / 4);
-
-  const bladeGradient = ctx.createLinearGradient(0, -10, 3, -10);
-  bladeGradient.addColorStop(0, "#a0a0a0");
-  bladeGradient.addColorStop(0.5, "#e0e0e0");
-  bladeGradient.addColorStop(1, "#808080");
-
-  ctx.fillStyle = bladeGradient;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(2, 0);
-  ctx.lineTo(2, -8);
-  ctx.lineTo(1, -10);
-  ctx.lineTo(0, -8);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.strokeStyle = "#505050";
-  ctx.lineWidth = 0.5;
-  ctx.stroke();
-
-  ctx.fillStyle = accentColor;
-  ctx.fillRect(-1, 0, 4, 2);
-
-  ctx.fillStyle = "#4a3020";
-  ctx.fillRect(0, 2, 2, 4);
-
-  ctx.restore();
-}
-
-function shadeColor(color: string, percent: number): string {
-  const num = parseInt(color.replace("#", ""), 16);
-  const amt = Math.round(2.55 * percent);
-  const R = Math.max(0, Math.min(255, (num >> 16) + amt));
-  const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00ff) + amt));
-  const B = Math.max(0, Math.min(255, (num & 0x0000ff) + amt));
-  return `#${((1 << 24) | (R << 16) | (G << 8) | B).toString(16).slice(1)}`;
+  // Draw sprite centered on character position
+  ctx.drawImage(sprite, px - 16, py - 16, 32, 32);
 }
 
 function drawTrap(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  const px = x * TILE_SIZE + TILE_SIZE / 2;
-  const py = y * TILE_SIZE + TILE_SIZE / 2;
-  const size = 10;
-
-  ctx.strokeStyle = COLORS.trap;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(px, py, size, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.strokeStyle = COLORS.trapTeeth;
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 8; i++) {
-    const angle = (i * Math.PI * 2) / 8;
-    const innerR = size - 3;
-    const outerR = size + 3;
-    ctx.beginPath();
-    ctx.moveTo(px + Math.cos(angle) * innerR, py + Math.sin(angle) * innerR);
-    ctx.lineTo(px + Math.cos(angle) * outerR, py + Math.sin(angle) * outerR);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = COLORS.trap;
-  ctx.beginPath();
-  ctx.arc(px, py, 3, 0, Math.PI * 2);
-  ctx.fill();
+  const px = x * TILE_SIZE;
+  const py = y * TILE_SIZE;
+  const sprite = getSprite("trap");
+  ctx.drawImage(sprite, px, py, TILE_SIZE, TILE_SIZE);
 }
 
 function drawItem(
@@ -750,50 +468,33 @@ function drawItem(
   const px = x * TILE_SIZE + 4 + (index % 2) * 14;
   const py = y * TILE_SIZE + 4 + Math.floor(index / 2) * 14;
 
-  let color = COLORS.item;
-  if (item.type === "weapon") color = COLORS.weapon;
-
-  ctx.fillStyle = color;
-
-  if (item.type === "weapon") {
-    ctx.beginPath();
-    ctx.moveTo(px + 2, py + 10);
-    ctx.lineTo(px + 10, py + 2);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = "#654";
-    ctx.fillRect(px, py + 8, 4, 4);
-  } else if (item.type === "contract") {
-    // Draw a blood-red scroll
-    const scrollX = px + 2;
-    const scrollY = py + 2;
-    const scrollW = 10;
-    const scrollH = 12;
-
-    // Scroll body (parchment color)
-    ctx.fillStyle = "#d4b896";
-    ctx.fillRect(scrollX, scrollY + 2, scrollW, scrollH - 4);
-
-    // Scroll rolls at top and bottom
-    ctx.fillStyle = "#8b0000"; // Dark red
-    ctx.beginPath();
-    ctx.arc(scrollX + scrollW / 2, scrollY + 2, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(scrollX + scrollW / 2, scrollY + scrollH - 2, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Blood drop/seal
-    ctx.fillStyle = "#b00000";
-    ctx.beginPath();
-    ctx.arc(scrollX + scrollW / 2, scrollY + scrollH / 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.arc(px + 6, py + 6, 5, 0, Math.PI * 2);
-    ctx.fill();
+  let spriteName: string;
+  switch (item.type) {
+    case "weapon":
+      spriteName = "item_weapon";
+      break;
+    case "consumable":
+      spriteName = "item_consumable";
+      break;
+    case "key":
+      spriteName = "item_key";
+      break;
+    case "trap":
+      spriteName = "item_trap";
+      break;
+    case "clothing":
+      spriteName = "item_clothing";
+      break;
+    case "contract":
+      spriteName = "item_contract";
+      break;
+    default:
+      spriteName = "item_consumable"; // fallback
   }
+
+  const sprite = getSprite(spriteName);
+  // Draw 16x16 sprite scaled to 12x12 for compact display
+  ctx.drawImage(sprite, px, py, 12, 12);
 }
 
 export function render(
@@ -804,6 +505,9 @@ export function render(
   visibleTiles?: Position[],
   currentCharacterId?: string
 ): void {
+  // Disable image smoothing for crisp pixel art
+  ctx.imageSmoothingEnabled = false;
+
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, world.width * TILE_SIZE, world.height * TILE_SIZE);
 
