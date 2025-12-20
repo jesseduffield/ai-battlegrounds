@@ -12,9 +12,7 @@ export type TrapFeature = {
   id: string;
   name: string;
   ownerId: string;
-  damage: number;
-  attackDebuff: number;
-  debuffDuration: number;
+  appliesEffect: Effect;
   triggered: boolean;
 };
 
@@ -65,15 +63,19 @@ export type BloodContract = {
   createdTurn: number;
 };
 
+export type UseEffect =
+  | { type: "heal"; amount: number }
+  | { type: "damage"; amount: number }
+  | { type: "apply_effect"; effect: Effect };
+
 export type Item = {
   id: string;
   name: string;
   type: ItemType;
   damage?: number;
   armor?: number;
-  trapDamage?: number;
-  trapAttackDebuff?: number;
-  trapDebuffDuration?: number;
+  trapEffect?: Effect;
+  useEffect?: UseEffect;
   contract?: BloodContract;
   unlocksFeatureId?: string;
 };
@@ -89,6 +91,35 @@ export type TileMemory = {
 
 export type ReasoningEffort = "none" | "low" | "medium" | "high";
 
+export type EffectTrigger =
+  | "turn_start"
+  | "turn_end"
+  | "on_attack"
+  | "on_damaged";
+
+export type EffectAction =
+  | { type: "damage"; amount: number }
+  | { type: "heal"; amount: number }
+  | {
+      type: "modify_stat";
+      stat: "attack" | "defense" | "speed";
+      operation: "add" | "multiply";
+      value: number;
+    }
+  | { type: "message"; text: string };
+
+export type Effect = {
+  id: string;
+  name: string;
+  sourceId?: string;
+  duration: number; // Turns remaining, -1 for permanent
+  preventsMovement?: boolean;
+  triggers: Array<{
+    on: EffectTrigger;
+    actions: EffectAction[];
+  }>;
+};
+
 export type Character = {
   id: string;
   name: string;
@@ -103,9 +134,7 @@ export type Character = {
   movementRange: number;
   viewDistance: number;
   mapMemory: Map<string, TileMemory>;
-  debuffTurnsRemaining: number;
-  trapped?: boolean;
-  attackDebuff?: number;
+  effects: Effect[];
   aiModel: OpenAI.ResponsesModel;
   reasoningEffort: ReasoningEffort;
 };
@@ -203,6 +232,11 @@ export type WaitAction = {
   type: "wait";
 };
 
+export type UseAction = {
+  type: "use";
+  targetItemId: string;
+};
+
 export type Action =
   | MoveAction
   | LookAroundAction
@@ -211,6 +245,7 @@ export type Action =
   | DropAction
   | EquipAction
   | UnequipAction
+  | UseAction
   | AttackAction
   | TalkAction
   | PlaceAction
@@ -243,6 +278,7 @@ export type GameEventType =
   | "pickup"
   | "drop"
   | "equip"
+  | "use"
   | "attack"
   | "damage"
   | "death"
@@ -250,6 +286,7 @@ export type GameEventType =
   | "miss"
   | "place_trap"
   | "trap_triggered"
+  | "effect_expired"
   | "unlock"
   | "contract_issued"
   | "contract_signed"

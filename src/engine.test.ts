@@ -47,7 +47,7 @@ function createTestCharacter(
     personalityPrompt: "",
     alive: true,
     mapMemory: new Map(),
-    debuffTurnsRemaining: 0,
+    effects: [],
     aiModel: "gpt-5.2",
     reasoningEffort: "medium",
     ...overrides,
@@ -278,9 +278,21 @@ describe("Traps", () => {
       id: createId(),
       name: "Bear Trap",
       type: "trap" as const,
-      trapDamage: 3,
-      trapAttackDebuff: 2,
-      trapDebuffDuration: 5,
+      trapEffect: {
+        id: createId(),
+        name: "Trapped",
+        duration: 5,
+        preventsMovement: true,
+        triggers: [
+          { on: "turn_start" as const, actions: [{ type: "damage" as const, amount: 3 }] },
+          {
+            on: "on_attack" as const,
+            actions: [
+              { type: "modify_stat" as const, stat: "attack" as const, operation: "multiply" as const, value: 0.5 },
+            ],
+          },
+        ],
+      },
     };
   }
 
@@ -343,22 +355,38 @@ describe("Traps", () => {
   });
 
   describe("trap triggering", () => {
+    function createTrapFeature(ownerId: string) {
+      return {
+        type: "trap" as const,
+        id: createId(),
+        name: "Bear Trap",
+        ownerId,
+        appliesEffect: {
+          id: createId(),
+          name: "Trapped",
+          duration: 5,
+          preventsMovement: true,
+          triggers: [
+            { on: "turn_start" as const, actions: [{ type: "damage" as const, amount: 3 }] },
+            {
+              on: "on_attack" as const,
+              actions: [
+                { type: "modify_stat" as const, stat: "attack" as const, operation: "multiply" as const, value: 0.5 },
+              ],
+            },
+          ],
+        },
+        triggered: false,
+      };
+    }
+
     it("should trigger trap when stepping on it", () => {
       const world = createTestWorld(10, 10);
       const victim = createTestCharacter("Victim", 4, 5);
       world.characters.push(victim);
 
       // Place a trap feature at (5, 5)
-      world.tiles[5][5].feature = {
-        type: "trap",
-        id: createId(),
-        name: "Bear Trap",
-        ownerId: "someone-else",
-        damage: 3,
-        attackDebuff: 2,
-        debuffDuration: 5,
-        triggered: false,
-      };
+      world.tiles[5][5].feature = createTrapFeature("someone-else");
 
       // Move directly to the trap tile
       const result = executeAction(world, victim, {
@@ -370,10 +398,10 @@ describe("Traps", () => {
       // Victim should be stopped at the trap
       expect(victim.position.x).toBe(5);
       expect(victim.position.y).toBe(5);
-      // Victim should be damaged and trapped
-      expect(victim.hp).toBe(7); // 10 - 3 damage
-      expect(victim.trapped).toBe(true);
-      expect(victim.debuffTurnsRemaining).toBe(5);
+      // Victim should have the "Trapped" effect
+      const trappedEffect = victim.effects.find((e) => e.name === "Trapped");
+      expect(trappedEffect).toBeDefined();
+      expect(trappedEffect?.duration).toBe(5);
       // Trap should be removed
       expect(world.tiles[5][5].feature).toBeUndefined();
     });
@@ -384,16 +412,7 @@ describe("Traps", () => {
       world.characters.push(owner);
 
       // Place owner's own trap feature at (5, 5)
-      world.tiles[5][5].feature = {
-        type: "trap",
-        id: createId(),
-        name: "Bear Trap",
-        ownerId: owner.id,
-        damage: 3,
-        attackDebuff: 2,
-        debuffDuration: 5,
-        triggered: false,
-      };
+      world.tiles[5][5].feature = createTrapFeature(owner.id);
 
       // Move directly to the trap tile
       const result = executeAction(world, owner, {
@@ -405,9 +424,9 @@ describe("Traps", () => {
       // Owner should be stopped at their own trap
       expect(owner.position.x).toBe(5);
       expect(owner.position.y).toBe(5);
-      // Owner should be damaged and trapped by their own trap
-      expect(owner.hp).toBe(7); // 10 - 3 damage
-      expect(owner.trapped).toBe(true);
+      // Owner should have the "Trapped" effect
+      const trappedEffect = owner.effects.find((e) => e.name === "Trapped");
+      expect(trappedEffect).toBeDefined();
       // Trap should be removed
       expect(world.tiles[5][5].feature).toBeUndefined();
     });

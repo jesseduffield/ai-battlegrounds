@@ -7,6 +7,7 @@ import type {
   Feature,
   ChestFeature,
   DoorFeature,
+  Effect,
 } from "./types";
 import { createId, initializeCharacterMemory } from "./engine";
 import { DEFAULT_REASONING_EFFORT, DEFAULT_AI_MODEL } from "./agent";
@@ -48,6 +49,37 @@ function createItem(
   return { id: createId(), name, type, ...props };
 }
 
+function createTrapEffect(
+  name: string,
+  damage: number,
+  attackDebuffMultiplier: number,
+  duration: number
+): Effect {
+  return {
+    id: createId(),
+    name,
+    duration,
+    preventsMovement: true,
+    triggers: [
+      {
+        on: "turn_start",
+        actions: [{ type: "damage", amount: damage }],
+      },
+      {
+        on: "on_attack",
+        actions: [
+          {
+            type: "modify_stat",
+            stat: "attack",
+            operation: "multiply",
+            value: attackDebuffMultiplier,
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function createCharacter(
   name: string,
   x: number,
@@ -67,7 +99,7 @@ function createCharacter(
     movementRange: options.movementRange ?? 4,
     viewDistance: options.viewDistance ?? 20,
     mapMemory: new Map(),
-    debuffTurnsRemaining: 0,
+    effects: [],
     reasoningEffort: options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     aiModel: options.aiModel ?? DEFAULT_AI_MODEL,
     ...options,
@@ -147,27 +179,32 @@ export function createTownMap(): World {
   const hunterKnife1 = createItem("Hunting Knife", "weapon", { damage: 5 });
   const hunterKnife2 = createItem("Serrated Blade", "weapon", { damage: 5 });
 
+  // Create health potions
+  const healthPotion1 = createItem("Health Potion", "consumable", {
+    useEffect: { type: "heal", amount: 10 },
+  });
+  const healthPotion2 = createItem("Health Potion", "consumable", {
+    useEffect: { type: "heal", amount: 10 },
+  });
+
   // Create bear traps in chests for the prey to find
   const bearTrap1 = createItem("Bear Trap", "trap", {
-    trapDamage: 3,
-    trapAttackDebuff: 2,
-    trapDebuffDuration: 5,
+    trapEffect: createTrapEffect("Trapped", 3, 0.5, 5),
   });
-  tiles[7][13].feature = createChest("Supply Crate", [bearTrap1]);
+  tiles[7][13].feature = createChest("Supply Crate", [
+    bearTrap1,
+    healthPotion1,
+  ]);
 
   const bearTrap2 = createItem("Bear Trap", "trap", {
-    trapDamage: 3,
-    trapAttackDebuff: 2,
-    trapDebuffDuration: 5,
+    trapEffect: createTrapEffect("Trapped", 3, 0.5, 5),
   });
   tiles[5][16].feature = createChest("Tool Box", [bearTrap2]);
 
   const bearTrap3 = createItem("Bear Trap", "trap", {
-    trapDamage: 3,
-    trapAttackDebuff: 2,
-    trapDebuffDuration: 5,
+    trapEffect: createTrapEffect("Trapped", 3, 0.5, 5),
   });
-  tiles[9][14].feature = createChest("Old Chest", [bearTrap3]);
+  tiles[9][14].feature = createChest("Old Chest", [bearTrap3, healthPotion2]);
 
   const characters: Character[] = [
     // Hunter 1 - top left
@@ -177,7 +214,12 @@ export function createTownMap(): World {
       3,
       `You are Kane, a ruthless hunter. Your mission: kill all three unarmed prey (Alice, Bob, Charlie). You are ALREADY ARMED with a knife. The other hunter (Razor) is your competition - only one hunter survives. If the game ends and prey remain alive, you'll be executed by the game host.`,
       {
-        inventory: [hunterKnife1],
+        inventory: [
+          hunterKnife1,
+          createItem("Health Potion", "consumable", {
+            useEffect: { type: "heal", amount: 10 },
+          }),
+        ],
         equippedWeapon: hunterKnife1,
         aiModel: "gpt-4o",
         reasoningEffort: "none",

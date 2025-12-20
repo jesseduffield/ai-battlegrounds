@@ -178,6 +178,43 @@
       margin-bottom: 0.5rem;
     }
 
+    .effects-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.25rem;
+    }
+
+    .effects-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .effect-badge {
+      background: var(--accent-red);
+      color: #fff;
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      width: 100%;
+    }
+
+    .effect-badge strong {
+      font-weight: 700;
+    }
+
+    .effect-details {
+      font-size: 0.65rem;
+      opacity: 0.9;
+      margin-top: 0.2rem;
+      font-weight: 400;
+    }
+
+    .text-muted {
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
     .stat-row {
       display: flex;
       justify-content: space-between;
@@ -659,6 +696,7 @@
             <button class="action-btn" data-action="pickup">Pickup</button>
             <button class="action-btn" data-action="drop">Drop</button>
             <button class="action-btn" data-action="equip">Equip</button>
+            <button class="action-btn" data-action="use">Use</button>
             <button class="action-btn" data-action="place">Place</button>
             <button class="action-btn" data-action="unlock">Unlock</button>
             <button class="action-btn" data-action="contract">Contract</button>

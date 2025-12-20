@@ -12,6 +12,7 @@ import {
   getCharacterKnowledge,
   getReachableTiles,
   MAX_TALK_DISTANCE,
+  describeEffect,
 } from "./engine";
 import OpenAI from "openai";
 
@@ -266,20 +267,47 @@ function formatKnowledge(
   lines.push(`HP: ${knowledge.status.hp}/${knowledge.status.maxHp}`);
   lines.push(`Position: ${formatPosition(knowledge.status.position)}`);
 
-  if (character.debuffTurnsRemaining > 0) {
-    lines.push(
-      `*** TRAPPED! Cannot move, attack halved! (${character.debuffTurnsRemaining} turns remaining) ***`
-    );
+  // Show all active effects with their actual properties
+  if (character.effects.length > 0) {
+    lines.push(`\n*** ACTIVE EFFECTS ***`);
+    for (const effect of character.effects) {
+      const desc = describeEffect(effect);
+      lines.push(`  - ${effect.name} (${effect.duration} turns): ${desc}`);
+    }
   }
+
+  // Check for movement-preventing effects
+  const movementBlocker = character.effects.find((e) => e.preventsMovement);
+
+  // Check for attack modifiers from effects
+  const hasAttackDebuff = character.effects.some((e) =>
+    e.triggers.some(
+      (t) =>
+        t.on === "on_attack" &&
+        t.actions.some(
+          (a) =>
+            a.type === "modify_stat" &&
+            a.stat === "attack" &&
+            ((a.operation === "multiply" && a.value < 1) ||
+              (a.operation === "add" && a.value < 0))
+        )
+    )
+  );
 
   if (hasWeapon) {
     lines.push(
       `*** YOU ARE ARMED with ${weaponName} (${weaponDamage} damage${
-        character.debuffTurnsRemaining > 0 ? " - HALVED while trapped!" : ""
+        hasAttackDebuff ? " - REDUCED by effect!" : ""
       }) ***`
     );
   } else {
     lines.push(`*** YOU ARE UNARMED (fists only, 1 damage) ***`);
+  }
+
+  if (movementBlocker) {
+    lines.push(
+      `*** CANNOT MOVE due to ${movementBlocker.name}! (${movementBlocker.duration} turns remaining) ***`
+    );
   }
 
   lines.push(
@@ -300,6 +328,23 @@ function formatKnowledge(
     );
   }
 
+  const usableItems = knowledge.status.inventory.filter(
+    (i) => i.useEffect !== undefined
+  );
+  if (usableItems.length > 0) {
+    const usableDescriptions = usableItems.map((i) => {
+      if (i.useEffect?.type === "heal") {
+        return `${i.name} (heals ${i.useEffect.amount} HP)`;
+      } else if (i.useEffect?.type === "damage") {
+        return `${i.name} (deals ${i.useEffect.amount} damage to self)`;
+      } else if (i.useEffect?.type === "apply_effect") {
+        return `${i.name} (applies ${i.useEffect.effect.name})`;
+      }
+      return i.name;
+    });
+    lines.push(`  -> Usable items: ${usableDescriptions.join(", ")}`);
+  }
+
   const visibleChars = knowledge.visible.characters;
   const livingEnemies = visibleChars.filter(({ character: c }) => c.alive);
   const deadEnemies = visibleChars.filter(({ character: c }) => !c.alive);
@@ -312,9 +357,11 @@ function formatKnowledge(
       const weapon = other.equippedWeapon
         ? `armed with ${other.equippedWeapon.name}`
         : "unarmed";
-      const trappedStatus =
-        other.debuffTurnsRemaining > 0
-          ? `, TRAPPED (${other.debuffTurnsRemaining} turns, attack halved!)`
+      const effectStatus =
+        other.effects.length > 0
+          ? `, EFFECTS: ${other.effects
+              .map((e) => `${e.name}(${e.duration}t: ${describeEffect(e)})`)
+              .join(", ")}`
           : "";
 
       if (canAttack) {
@@ -323,7 +370,7 @@ function formatKnowledge(
             position
           )} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${
             other.maxHp
-          }, ${weapon}${trappedStatus}]`
+          }, ${weapon}${effectStatus}]`
         );
       } else if (dist <= MAX_TALK_DISTANCE) {
         lines.push(
@@ -331,13 +378,13 @@ function formatKnowledge(
             position
           )} - CAN TALK (distance: ${dist}) ** [HP: ${other.hp}/${
             other.maxHp
-          }, ${weapon}${trappedStatus}]`
+          }, ${weapon}${effectStatus}]`
         );
       } else {
         lines.push(
           `  - ${other.name} at ${formatPosition(position)} [HP: ${other.hp}/${
             other.maxHp
-          }, ${weapon}${trappedStatus}] - distance: ${dist} tiles`
+          }, ${weapon}${effectStatus}] - distance: ${dist} tiles`
         );
       }
     }
@@ -515,6 +562,7 @@ const actionResponseSchema = {
           "DROP",
           "EQUIP",
           "UNEQUIP",
+          "USE",
           "PLACE",
           "CONTRACT",
           "UNLOCK",
@@ -809,6 +857,34 @@ function parseJsonAction(
       };
     }
 
+    case "USE": {
+      if (!jsonResponse.target) {
+        return { action: null, error: "USE requires a target" };
+      }
+      const usableItems = knowledge.status.inventory.filter(
+        (i) => i.useEffect !== undefined
+      );
+      if (usableItems.length === 0) {
+        return {
+          action: null,
+          error: "USE failed: No usable items in inventory!",
+        };
+      }
+      const item = usableItems.find((i) =>
+        i.name.toLowerCase().includes(jsonResponse.target!.toLowerCase())
+      );
+      if (!item) {
+        return {
+          action: null,
+          error: `USE failed: "${jsonResponse.target}" not found or not usable`,
+        };
+      }
+      return {
+        action: { type: "use", targetItemId: item.id },
+        error: null,
+      };
+    }
+
     case "PLACE": {
       if (jsonResponse.x === null || jsonResponse.y === null) {
         return { action: null, error: "PLACE requires x and y coordinates" };
@@ -1097,6 +1173,7 @@ ${talkAction}
 ${pickupAction}
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name). You cannot equip and attack in the same turn.
 - UNEQUIP: Unequip weapon/clothing. Requires target (item name). Can signal good faith to others.
+- USE: Use a consumable item from inventory. Requires target (item name). Consumes the item.
 - PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
 ${unlockAction}
 - DROP: Drop item from inventory. Requires target (item name).
@@ -1444,16 +1521,18 @@ export async function judgeContract(
       const weapon = c.equippedWeapon
         ? `, armed with ${c.equippedWeapon.name}`
         : ", unarmed";
-      const trapped =
-        c.debuffTurnsRemaining > 0
-          ? `, TRAPPED (${c.debuffTurnsRemaining} turns)`
+      const effectsStr =
+        c.effects.length > 0
+          ? `, effects: [${c.effects
+              .map((e) => `${e.name}(${e.duration}t)`)
+              .join(", ")}]`
           : "";
       const inventory =
         c.inventory.length > 0
           ? `, inventory: [${c.inventory.map((i) => i.name).join(", ")}]`
           : "";
       if (c.alive) {
-        return `- ${c.name}: Alive at (${c.position.x}, ${c.position.y}), HP ${c.hp}/${c.maxHp}${weapon}${trapped}${inventory}`;
+        return `- ${c.name}: Alive at (${c.position.x}, ${c.position.y}), HP ${c.hp}/${c.maxHp}${weapon}${effectsStr}${inventory}`;
       } else {
         return `- ${c.name}: DEAD at (${c.position.x}, ${c.position.y})`;
       }

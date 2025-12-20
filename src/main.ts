@@ -21,6 +21,9 @@ import {
   distance,
   MAX_TALK_DISTANCE,
   getWitnessIds,
+  processEffects,
+  tickEffectDurations,
+  describeEffect,
 } from "./engine";
 import {
   getAgentDecision,
@@ -348,6 +351,19 @@ function updateUI(): void {
     const hpClass =
       hpPercent > 0.6 ? "hp-good" : hpPercent > 0.3 ? "hp-mid" : "hp-low";
 
+    const effectsHtml =
+      current.effects.length > 0
+        ? current.effects
+            .map(
+              (e) =>
+                `<div class="effect-badge">
+                  <strong>${e.name}</strong> (${e.duration} turns)
+                  <div class="effect-details">${describeEffect(e)}</div>
+                </div>`
+            )
+            .join("")
+        : '<span class="text-muted">None</span>';
+
     characterPanelEl.innerHTML = `
       <div class="character-name">${current.name}</div>
       <div class="stat-row">
@@ -365,6 +381,10 @@ function updateUI(): void {
       <div class="stat-row">
         <span class="stat-label">Inventory</span>
         <span>${current.inventory.length} items</span>
+      </div>
+      <div class="stat-row effects-row">
+        <span class="stat-label">Effects</span>
+        <div class="effects-list">${effectsHtml}</div>
       </div>
     `;
   }
@@ -688,12 +708,18 @@ function showInspector(w: World, pos: Position): void {
     html += `<div style="margin-top: 0.5rem; font-weight: 600;">Chest:</div>`;
     html += `<div class="item-entry">• ${tile.feature.name}`;
     html += tile.feature.searched ? " (searched)" : " (not searched)";
-    if (tile.feature.searched && tile.feature.contents.length > 0) {
+    if (tile.feature.contents.length > 0) {
       html += '<div style="margin-left: 1rem;">';
       for (const c of tile.feature.contents) {
-        html += `<div class="item-entry">↳ ${c.name}</div>`;
+        html += `<div class="item-entry">↳ ${c.name}`;
+        if (c.damage) html += ` [dmg: ${c.damage}]`;
+        if (c.armor) html += ` [armor: ${c.armor}]`;
+        if (c.useEffect?.type === "heal") html += ` [heals ${c.useEffect.amount}]`;
+        html += `</div>`;
       }
       html += "</div>";
+    } else if (tile.feature.searched) {
+      html += '<div style="margin-left: 1rem; opacity: 0.6;">(empty)</div>';
     }
     html += `</div>`;
   }
@@ -1152,21 +1178,23 @@ async function processTurn(): Promise<void> {
   saveSnapshot();
 
   try {
-    // Decrement debuff at start of turn
-    if (current.debuffTurnsRemaining > 0) {
-      current.debuffTurnsRemaining--;
-      if (current.debuffTurnsRemaining === 0) {
-        current.trapped = false;
-        current.attackDebuff = undefined;
-        const freeEvent: GameEvent = {
-          turn: world.turn,
-          type: "move",
-          actorId: current.id,
-          description: `${current.name} has broken free from the trap!`,
-          witnessIds: getWitnessIds(world, [current.position]),
-        };
-        pushEvent(freeEvent);
-      }
+    // Process effects at turn start
+    const turnStartEvents = processEffects(current, "turn_start", world);
+    for (const event of turnStartEvents) {
+      pushEvent(event);
+    }
+
+    // Tick effect durations and create events for expired effects
+    const expiredEffects = tickEffectDurations(current);
+    for (const effect of expiredEffects) {
+      const expiredEvent: GameEvent = {
+        turn: world.turn,
+        type: "effect_expired",
+        actorId: current.id,
+        description: `${current.name} is no longer affected by ${effect.name}!`,
+        witnessIds: getWitnessIds(world, [current.position]),
+      };
+      pushEvent(expiredEvent);
     }
 
     const lookResult = executeAction(world, current, { type: "look_around" });
@@ -1358,7 +1386,7 @@ async function processTurn(): Promise<void> {
         if (result.success) {
           movedThisTurn = true;
           // If character got trapped, let them continue with next action
-          if (current.trapped) {
+          if (current.effects.some((e) => e.preventsMovement)) {
             turnHistory[turnHistory.length - 1].result += " (TRAPPED!)";
             continue;
           }
@@ -1787,6 +1815,26 @@ function selectPlayerAction(actionType: string): void {
           .join(" ");
       }
       break;
+    case "use":
+      const usableItems = current.inventory.filter((i) => i.useEffect);
+      if (usableItems.length === 0) {
+        details.innerHTML = `<p>No usable items in inventory</p>`;
+      } else {
+        details.innerHTML = usableItems
+          .map((item) => {
+            let effectDesc = "";
+            if (item.useEffect?.type === "heal") {
+              effectDesc = ` (heals ${item.useEffect.amount})`;
+            } else if (item.useEffect?.type === "damage") {
+              effectDesc = ` (${item.useEffect.amount} dmg)`;
+            } else if (item.useEffect?.type === "apply_effect") {
+              effectDesc = ` (${item.useEffect.effect.name})`;
+            }
+            return `<button class="action-btn" onclick="window.executePlayerAction('use', '${item.name}')">${item.name}${effectDesc}</button>`;
+          })
+          .join(" ");
+      }
+      break;
     case "place":
       const traps = current.inventory.filter((i) => i.type === "trap");
       if (traps.length === 0) {
@@ -1917,6 +1965,11 @@ async function executePlayerAction(
         const dropItem = current.inventory.find((i) => i.name === target);
         if (!dropItem) return;
         actualAction = { type: "drop", targetItemId: dropItem.id };
+        break;
+      case "use":
+        const useItem = current.inventory.find((i) => i.name === target);
+        if (!useItem) return;
+        actualAction = { type: "use", targetItemId: useItem.id };
         break;
       case "sign":
         actualAction = { type: "sign_contract" };

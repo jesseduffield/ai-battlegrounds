@@ -12,9 +12,143 @@ import type {
   CharacterKnowledge,
   DoorFeature,
   ChestFeature,
+  Effect,
+  EffectTrigger,
 } from "./types";
 
 export const MAX_TALK_DISTANCE = 15;
+
+export function applyEffect(character: Character, effect: Effect): boolean {
+  if (character.effects.some((e) => e.id === effect.id)) {
+    return false;
+  }
+  character.effects.push({ ...effect });
+  return true;
+}
+
+export function removeEffect(character: Character, effectId: string): void {
+  character.effects = character.effects.filter((e) => e.id !== effectId);
+}
+
+export function processEffects(
+  character: Character,
+  trigger: EffectTrigger,
+  world: World
+): GameEvent[] {
+  const events: GameEvent[] = [];
+
+  for (const effect of character.effects) {
+    for (const t of effect.triggers) {
+      if (t.on === trigger) {
+        for (const action of t.actions) {
+          if (action.type === "damage") {
+            character.hp -= action.amount;
+            events.push({
+              turn: world.turn,
+              type: "damage",
+              actorId: character.id,
+              damage: action.amount,
+              description: `${character.name} takes ${action.amount} damage from ${effect.name}!`,
+              witnessIds: getWitnessIds(world, [character.position]),
+            });
+            if (character.hp <= 0) {
+              character.hp = 0;
+              character.alive = false;
+              events.push({
+                turn: world.turn,
+                type: "death",
+                actorId: character.id,
+                description: `${character.name} died from ${effect.name}!`,
+                witnessIds: getWitnessIds(world, [character.position]),
+              });
+            }
+          } else if (action.type === "heal") {
+            const healAmount = Math.min(action.amount, character.maxHp - character.hp);
+            character.hp += healAmount;
+          }
+        }
+      }
+    }
+  }
+
+  return events;
+}
+
+export function tickEffectDurations(character: Character): Effect[] {
+  const expiredEffects: Effect[] = [];
+
+  for (const effect of character.effects) {
+    if (effect.duration > 0) {
+      effect.duration--;
+      if (effect.duration === 0) {
+        expiredEffects.push(effect);
+      }
+    }
+  }
+
+  character.effects = character.effects.filter((e) => e.duration !== 0);
+  return expiredEffects;
+}
+
+export function hasEffect(character: Character, effectName: string): boolean {
+  return character.effects.some((e) => e.name === effectName);
+}
+
+export function getEffectStatModifier(
+  character: Character,
+  trigger: EffectTrigger,
+  stat: "attack" | "defense" | "speed"
+): { additive: number; multiplicative: number } {
+  let additive = 0;
+  let multiplicative = 1;
+
+  for (const effect of character.effects) {
+    for (const t of effect.triggers) {
+      if (t.on === trigger) {
+        for (const action of t.actions) {
+          if (action.type === "modify_stat" && action.stat === stat) {
+            if (action.operation === "add") {
+              additive += action.value;
+            } else if (action.operation === "multiply") {
+              multiplicative *= action.value;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { additive, multiplicative };
+}
+
+export function describeEffect(effect: Effect): string {
+  const parts: string[] = [];
+
+  if (effect.preventsMovement) {
+    parts.push("prevents movement");
+  }
+
+  for (const trigger of effect.triggers) {
+    for (const action of trigger.actions) {
+      if (action.type === "damage") {
+        parts.push(`${action.amount} damage/${trigger.on.replace("_", " ")}`);
+      } else if (action.type === "heal") {
+        parts.push(`${action.amount} heal/${trigger.on.replace("_", " ")}`);
+      } else if (action.type === "modify_stat") {
+        const statName = action.stat;
+        if (action.operation === "multiply") {
+          const percent = Math.round(action.value * 100);
+          parts.push(`${statName} ×${percent}%`);
+        } else {
+          const sign = action.value >= 0 ? "+" : "";
+          parts.push(`${statName} ${sign}${action.value}`);
+        }
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts.join(", ") : "no effects";
+}
 
 export function createId(): string {
   return Math.random().toString(36).substring(2, 11);
@@ -456,13 +590,15 @@ export function calculateDamage(attacker: Character): {
   isDebuffed: boolean;
 } {
   const baseDamage = attacker.equippedWeapon?.damage ?? 1;
-  const isDebuffed = (attacker.debuffTurnsRemaining ?? 0) > 0;
+  const attackMod = getEffectStatModifier(attacker, "on_attack", "attack");
+  const isDebuffed = attackMod.multiplicative < 1 || attackMod.additive < 0;
   const roll = rollDice(20);
 
   if (roll === 20) {
-    // Critical hit - double damage, but still halved if debuffed
-    const finalDamage = isDebuffed ? Math.floor(baseDamage) : baseDamage * 2;
-    return { damage: finalDamage, roll, isDebuffed };
+    // Critical hit - double base damage, then apply modifiers
+    let finalDamage = baseDamage * 2;
+    finalDamage = (finalDamage + attackMod.additive) * attackMod.multiplicative;
+    return { damage: Math.max(1, Math.floor(finalDamage)), roll, isDebuffed };
   }
   if (roll === 1) {
     return { damage: 0, roll, isDebuffed };
@@ -470,9 +606,9 @@ export function calculateDamage(attacker: Character): {
 
   const hitThreshold = 8;
   if (roll >= hitThreshold) {
-    // Halve damage if debuffed (trapped)
-    const finalDamage = isDebuffed ? Math.floor(baseDamage / 2) : baseDamage;
-    return { damage: Math.max(1, finalDamage), roll, isDebuffed };
+    let finalDamage = baseDamage;
+    finalDamage = (finalDamage + attackMod.additive) * attackMod.multiplicative;
+    return { damage: Math.max(1, Math.floor(finalDamage)), roll, isDebuffed };
   }
 
   return { damage: 0, roll, isDebuffed };
@@ -487,10 +623,13 @@ export function executeAction(
 
   switch (action.type) {
     case "move": {
-      if (character.debuffTurnsRemaining > 0) {
+      const movementBlockingEffect = character.effects.find(
+        (e) => e.preventsMovement
+      );
+      if (movementBlockingEffect) {
         return {
           success: false,
-          message: `${character.name} is trapped and cannot move! (${character.debuffTurnsRemaining} turns remaining)`,
+          message: `${character.name} cannot move due to ${movementBlockingEffect.name}! (${movementBlockingEffect.duration} turns remaining)`,
           events,
         };
       }
@@ -537,19 +676,15 @@ export function executeAction(
         // Check if there's a trap feature on this tile
         if (stepTile.feature?.type === "trap" && !stepTile.feature.triggered) {
           const trap = stepTile.feature;
+          const effect = trap.appliesEffect;
 
           // Trap triggered! Stop movement here
           finalPosition = stepPos;
           actualPath = [startPos, ...path.slice(0, i + 1)];
           trapTriggered = true;
 
-          // Apply trap damage
-          character.hp -= trap.damage;
-
-          // Apply trap effects: debuff for N turns (can't move, attack halved)
-          character.trapped = true;
-          character.attackDebuff = trap.attackDebuff;
-          character.debuffTurnsRemaining = trap.debuffDuration;
+          // Apply the trap's effect to the character
+          applyEffect(character, { ...effect, sourceId: trap.ownerId });
 
           const ownTrap = trap.ownerId === character.id;
           events.push({
@@ -559,9 +694,7 @@ export function executeAction(
             position: stepPos,
             description: `${character.name} stepped on ${
               ownTrap ? "their own" : "a"
-            } ${trap.name}! Took ${trap.damage} damage! TRAPPED for ${
-              trap.debuffDuration
-            } turns (can't move, attack reduced)!`,
+            } ${trap.name}! ${effect.name} for ${effect.duration} turns!`,
             witnessIds: getWitnessIds(world, [stepPos]),
           });
 
@@ -877,6 +1010,57 @@ export function executeAction(
       return { success: true, message: `Unequipped ${item.name}`, events };
     }
 
+    case "use": {
+      const item = character.inventory.find(
+        (i) => i.id === action.targetItemId
+      );
+      if (!item) {
+        return { success: false, message: "Item not in inventory", events };
+      }
+
+      if (!item.useEffect) {
+        return { success: false, message: `${item.name} cannot be used`, events };
+      }
+
+      const useEffect = item.useEffect;
+      let effectDescription = "";
+
+      if (useEffect.type === "heal") {
+        const healAmount = Math.min(useEffect.amount, character.maxHp - character.hp);
+        character.hp += healAmount;
+        effectDescription = `restored ${healAmount} HP`;
+      } else if (useEffect.type === "damage") {
+        character.hp -= useEffect.amount;
+        effectDescription = `took ${useEffect.amount} damage`;
+        if (character.hp <= 0) {
+          character.hp = 0;
+          character.alive = false;
+        }
+      } else if (useEffect.type === "apply_effect") {
+        applyEffect(character, { ...useEffect.effect });
+        effectDescription = `gained ${useEffect.effect.name} effect`;
+      }
+
+      // Remove consumable from inventory after use
+      const itemIndex = character.inventory.findIndex(
+        (i) => i.id === action.targetItemId
+      );
+      if (itemIndex >= 0) {
+        character.inventory.splice(itemIndex, 1);
+      }
+
+      events.push({
+        turn: world.turn,
+        type: "use",
+        actorId: character.id,
+        itemId: item.id,
+        description: `${character.name} used ${item.name} and ${effectDescription}`,
+        witnessIds: getWitnessIds(world, [character.position]),
+      });
+
+      return { success: true, message: `Used ${item.name}`, events };
+    }
+
     case "attack": {
       const target = world.characters.find(
         (c) => c.id === action.targetCharacterId
@@ -1066,14 +1250,22 @@ export function executeAction(
       character.inventory.splice(itemIndex, 1);
 
       // Place trap as feature on target tile
+      const defaultTrapEffect: Effect = {
+        id: createId(),
+        name: "Trapped",
+        duration: 5,
+        preventsMovement: true,
+        triggers: [
+          { on: "turn_start", actions: [{ type: "damage", amount: 3 }] },
+          { on: "on_attack", actions: [{ type: "modify_stat", stat: "attack", operation: "multiply", value: 0.5 }] },
+        ],
+      };
       targetTile.feature = {
         type: "trap",
         id: trapItem.id,
         name: trapItem.name,
         ownerId: character.id,
-        damage: trapItem.trapDamage ?? 3,
-        attackDebuff: trapItem.trapAttackDebuff ?? 2,
-        debuffDuration: trapItem.trapDebuffDuration ?? 5,
+        appliesEffect: trapItem.trapEffect ?? defaultTrapEffect,
         triggered: false,
       };
 
