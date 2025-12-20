@@ -492,6 +492,9 @@ export function getVisibleTiles(
   // Compute visible tiles using shadowcasting
   const visibleSet = computeVisibleTiles(world, character.position, range);
 
+  // Add corner walls: walls not directly visible but with 2+ adjacent visible walls
+  addCornerWallsToVisibleSet(world, visibleSet);
+
   // Iterate through visible tiles
   for (const key of visibleSet) {
     const [xStr, yStr] = key.split(",");
@@ -517,6 +520,77 @@ export function getVisibleTiles(
   return visible;
 }
 
+function addCornerWallsToVisibleSet(
+  world: World,
+  visibleSet: Set<string>
+): void {
+  // Find walls adjacent to visible positions that aren't already visible
+  const candidateWalls = new Set<string>();
+
+  for (const visibleKey of visibleSet) {
+    const [x, y] = visibleKey.split(",").map(Number);
+    const neighbors = [
+      { x: x + 1, y },
+      { x: x - 1, y },
+      { x, y: y + 1 },
+      { x, y: y - 1 },
+    ];
+
+    for (const neighbor of neighbors) {
+      if (
+        neighbor.x < 0 ||
+        neighbor.x >= world.width ||
+        neighbor.y < 0 ||
+        neighbor.y >= world.height
+      ) {
+        continue;
+      }
+
+      const neighborKey = `${neighbor.x},${neighbor.y}`;
+      if (visibleSet.has(neighborKey)) continue;
+
+      const neighborTile = world.tiles[neighbor.y][neighbor.x];
+      if (neighborTile.type === "wall") {
+        candidateWalls.add(neighborKey);
+      }
+    }
+  }
+
+  // Add walls that have 2+ adjacent visible walls (corner walls)
+  for (const wallKey of candidateWalls) {
+    const [x, y] = wallKey.split(",").map(Number);
+    const neighbors = [
+      { x: x + 1, y },
+      { x: x - 1, y },
+      { x, y: y + 1 },
+      { x, y: y - 1 },
+    ];
+
+    let visibleAdjacentWallCount = 0;
+    for (const neighbor of neighbors) {
+      if (
+        neighbor.x < 0 ||
+        neighbor.x >= world.width ||
+        neighbor.y < 0 ||
+        neighbor.y >= world.height
+      ) {
+        continue;
+      }
+
+      const neighborKey = `${neighbor.x},${neighbor.y}`;
+      const neighborTile = world.tiles[neighbor.y][neighbor.x];
+
+      if (neighborTile.type === "wall" && visibleSet.has(neighborKey)) {
+        visibleAdjacentWallCount++;
+      }
+    }
+
+    if (visibleAdjacentWallCount >= 2) {
+      visibleSet.add(wallKey);
+    }
+  }
+}
+
 export function initializeCharacterMemory(
   world: World,
   character: Character
@@ -526,6 +600,7 @@ export function initializeCharacterMemory(
   for (const visibleTile of visible.tiles) {
     const pos = visibleTile.position;
     const key = `${pos.x},${pos.y}`;
+
     const charAtTile = visible.characters.find(
       (c) => c.position.x === pos.x && c.position.y === pos.y
     );
@@ -852,6 +927,7 @@ export function executeAction(
       for (const visibleTile of visible.tiles) {
         const pos = visibleTile.position;
         const key = `${pos.x},${pos.y}`;
+
         const charAtTile = visible.characters.find(
           (c) => c.position.x === pos.x && c.position.y === pos.y
         );

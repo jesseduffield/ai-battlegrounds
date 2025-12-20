@@ -737,12 +737,12 @@ describe("Talk through bars", () => {
   });
 
   it("should NOT be able to talk beyond MAX_TALK_DISTANCE", () => {
-    const world = createTestWorld(20, 10);
+    const world = createTestWorld(30, 10);
 
     // Character at (0, 5)
     const char1 = createTestCharacter("Char1", 0, 5);
-    // Character at (10, 5) - distance is 10 tiles (beyond MAX_TALK_DISTANCE of 6)
-    const char2 = createTestCharacter("Char2", 10, 5);
+    // Character at (20, 5) - distance is 20 tiles (beyond MAX_TALK_DISTANCE of 15)
+    const char2 = createTestCharacter("Char2", 20, 5);
     world.characters.push(char1, char2);
 
     const result = executeAction(world, char1, {
@@ -967,5 +967,179 @@ describe("Pickup Action", () => {
     expect(exactResult.success).toBe(true);
     expect(exactResult.message).toContain("Picked up Legendary Sword");
     expect(character.inventory).toContain(item);
+  });
+});
+
+describe("Corner Wall Visibility", () => {
+  it("should mark top-left corner wall as explored when two adjacent walls are visible", () => {
+    const world = createTestWorld(5, 5);
+    // Create an L-shaped room with walls on top and left
+    // . . . . .
+    // . # # # .
+    // . # . . .
+    // . # . . .
+    // . . . . .
+    world.tiles[1][1].type = "wall";
+    world.tiles[1][2].type = "wall";
+    world.tiles[1][3].type = "wall";
+    world.tiles[2][1].type = "wall";
+    world.tiles[3][1].type = "wall";
+
+    const character = createTestCharacter("Test", 2, 2);
+    character.viewDistance = 10;
+
+    // Mark the two adjacent walls (top and left) as visible/remembered
+    character.mapMemory.set("1,2", { type: "wall", lastSeenTurn: 0 });
+    character.mapMemory.set("2,1", { type: "wall", lastSeenTurn: 0 });
+
+    // The corner wall at (1,1) should be marked as explored
+    const visible = getVisibleTiles(world, character);
+    const visiblePositions = new Set<string>();
+    for (const tile of visible.tiles) {
+      visiblePositions.add(`${tile.position.x},${tile.position.y}`);
+    }
+
+    // Import the function (it's not exported, so we'll test via look_around)
+    const result = executeAction(world, character, { type: "look_around" });
+    expect(result.success).toBe(true);
+
+    // The corner wall (1,1) should now be in memory
+    expect(character.mapMemory.has("1,1")).toBe(true);
+    const cornerMemory = character.mapMemory.get("1,1");
+    expect(cornerMemory?.type).toBe("wall");
+  });
+
+  it("should mark top-right corner wall as explored when two adjacent walls are visible", () => {
+    const world = createTestWorld(5, 5);
+    // Create an L-shaped room with walls on top and right
+    // Game coordinates: (x, y) = world.tiles[y][x]
+    // . . . . .
+    // . # # # .  <- row 1: walls at (1,1), (2,1), (3,1)
+    // . . . # .  <- row 2: wall at (3,2)
+    // . . . # .  <- row 3: wall at (3,3)
+    // . . . . .
+    // Corner wall at game position (1,3) = world.tiles[3][1]
+    // Adjacent walls: (1,2) = world.tiles[2][1], (2,3) = world.tiles[3][2]
+    world.tiles[1][1].type = "wall"; // (1,1)
+    world.tiles[1][2].type = "wall"; // (2,1)
+    world.tiles[1][3].type = "wall"; // (3,1)
+    world.tiles[3][2].type = "wall"; // (2,3) - adjacent wall
+    world.tiles[3][3].type = "wall"; // (3,3)
+    world.tiles[3][1].type = "wall"; // Corner wall at (1,3)
+    world.tiles[2][1].type = "wall"; // Adjacent wall at (1,2)
+
+    const character = createTestCharacter("Test", 2, 2);
+    // Use larger view distance so adjacent walls are visible
+    // This ensures they're in visiblePositions when markCornerWallsAsVisible runs
+    character.viewDistance = 10;
+
+    // Mark the two adjacent walls (top at (1,2) and right at (2,3)) as visible/remembered
+    // These will be seen as visible when look_around runs, ensuring they stay as walls
+    character.mapMemory.set("1,2", { type: "wall", lastSeenTurn: 0 });
+    character.mapMemory.set("2,3", { type: "wall", lastSeenTurn: 0 });
+
+    // Verify the corner wall is not yet in memory
+    expect(character.mapMemory.has("1,3")).toBe(false);
+
+    const result = executeAction(world, character, { type: "look_around" });
+    expect(result.success).toBe(true);
+
+    // Verify adjacent walls are still in memory as walls
+    expect(character.mapMemory.get("1,2")?.type).toBe("wall");
+    expect(character.mapMemory.get("2,3")?.type).toBe("wall");
+
+    // The corner wall at (1,3) should now be in memory as a wall
+    expect(character.mapMemory.has("1,3")).toBe(true);
+    const cornerMemory = character.mapMemory.get("1,3");
+    expect(cornerMemory?.type).toBe("wall");
+  });
+
+  it("should mark bottom-left corner wall as explored when two adjacent walls are visible", () => {
+    const world = createTestWorld(5, 5);
+    // Create an L-shaped room with walls on bottom and left
+    // Game coordinates: (x, y) = world.tiles[y][x]
+    // . . . . .
+    // . # . . .  <- row 1: wall at (1,1)
+    // . # . . .  <- row 2: wall at (1,2)
+    // . # # # .  <- row 3: walls at (1,3), (2,3), (3,3)
+    // . . . . .
+    // Corner wall at game position (3,1) = world.tiles[1][3]
+    // Adjacent walls: (3,2) = world.tiles[2][3], (2,1) = world.tiles[1][2]
+    world.tiles[1][1].type = "wall"; // (1,1)
+    world.tiles[2][1].type = "wall"; // (1,2) - adjacent wall
+    world.tiles[3][1].type = "wall"; // (1,3)
+    world.tiles[3][2].type = "wall"; // (2,3) - adjacent wall
+    world.tiles[3][3].type = "wall"; // (3,3)
+    world.tiles[1][3].type = "wall"; // Corner wall at (3,1)
+
+    const character = createTestCharacter("Test", 2, 2);
+    // Use larger view distance so adjacent walls are visible
+    // This ensures they're in visiblePositions when markCornerWallsAsVisible runs
+    character.viewDistance = 10;
+
+    // Mark the two adjacent walls (bottom at (3,2) and left at (2,1)) as visible/remembered
+    // These will be seen as visible when look_around runs, ensuring they stay as walls
+    character.mapMemory.set("3,2", { type: "wall", lastSeenTurn: 0 });
+    character.mapMemory.set("2,1", { type: "wall", lastSeenTurn: 0 });
+
+    const result = executeAction(world, character, { type: "look_around" });
+    expect(result.success).toBe(true);
+
+    // The corner wall at game position (3,1) = world.tiles[1][3] should now be in memory as a wall
+    expect(character.mapMemory.has("3,1")).toBe(true);
+    const cornerMemory = character.mapMemory.get("3,1");
+    expect(cornerMemory?.type).toBe("wall");
+  });
+
+  it("should mark bottom-right corner wall as explored when two adjacent walls are visible", () => {
+    const world = createTestWorld(5, 5);
+    // Create an L-shaped room with walls on bottom and right
+    // . . . . .
+    // . . . # .
+    // . . . # .
+    // . # # # .
+    // . . . . .
+    world.tiles[1][3].type = "wall";
+    world.tiles[2][3].type = "wall";
+    world.tiles[3][1].type = "wall";
+    world.tiles[3][2].type = "wall";
+    world.tiles[3][3].type = "wall";
+
+    const character = createTestCharacter("Test", 2, 2);
+    character.viewDistance = 10;
+
+    // Mark the two adjacent walls (bottom and right) as visible/remembered
+    character.mapMemory.set("3,2", { type: "wall", lastSeenTurn: 0 });
+    character.mapMemory.set("2,3", { type: "wall", lastSeenTurn: 0 });
+
+    const result = executeAction(world, character, { type: "look_around" });
+    expect(result.success).toBe(true);
+
+    // The corner wall at (3,3) should now be in memory
+    expect(character.mapMemory.has("3,3")).toBe(true);
+    const cornerMemory = character.mapMemory.get("3,3");
+    expect(cornerMemory?.type).toBe("wall");
+  });
+
+  it("should NOT mark corner wall when adjacent walls are only in memory (not currently visible)", () => {
+    const world = createTestWorld(5, 5);
+    // Create corner walls
+    world.tiles[1][1].type = "wall";
+    world.tiles[1][2].type = "wall";
+    world.tiles[2][1].type = "wall";
+
+    const character = createTestCharacter("Test", 3, 3); // Far from the corner
+    character.viewDistance = 1; // Short view distance so walls aren't currently visible
+
+    // Mark the two adjacent walls as remembered (but not currently visible)
+    character.mapMemory.set("1,2", { type: "wall", lastSeenTurn: 0 });
+    character.mapMemory.set("2,1", { type: "wall", lastSeenTurn: 0 });
+
+    const result = executeAction(world, character, { type: "look_around" });
+    expect(result.success).toBe(true);
+
+    // The corner wall at (1,1) should NOT be marked because adjacent walls aren't currently visible
+    // Corner wall detection only works with currently visible walls, not remembered ones
+    expect(character.mapMemory.has("1,1")).toBe(false);
   });
 });
