@@ -6,7 +6,6 @@ import type {
   Position,
   BloodContract,
   GameEvent,
-  Feature,
   Item,
   Effect,
   EffectAction,
@@ -16,6 +15,7 @@ import {
   getReachableTiles,
   MAX_TALK_DISTANCE,
   describeEffect,
+  getAdjacentPositions,
 } from "./engine";
 import OpenAI from "openai";
 
@@ -365,6 +365,179 @@ function generateMapJson(world: World, character: Character): string {
   return JSON.stringify(mapData, null, 2);
 }
 
+function generateLegalActions(
+  world: World,
+  character: Character,
+  hasMoved: boolean
+): string {
+  const actions: Array<Record<string, unknown>> = [];
+  const pos = character.position;
+
+  // Check movement-preventing effects
+  const canMove = !character.effects.some((e) => e.preventsMovement);
+
+  // MOVE actions - only if hasn't moved this turn and can move
+  if (!hasMoved && canMove) {
+    const reachable = getReachableTiles(world, character);
+    for (const tile of reachable) {
+      actions.push({ action: "MOVE", x: tile.x, y: tile.y });
+    }
+  }
+
+  // Get adjacent positions for various checks
+  const adjacentPositions = [pos, ...getAdjacentPositions(pos)];
+
+  // ATTACK actions - adjacent living characters
+  for (const other of world.characters) {
+    if (other.id === character.id || !other.alive) continue;
+    if (isAdjacent(pos, other.position)) {
+      actions.push({ action: "ATTACK", target: other.name });
+    }
+  }
+
+  // TALK actions - characters within talk distance
+  for (const other of world.characters) {
+    if (other.id === character.id || !other.alive) continue;
+    const dist =
+      Math.abs(pos.x - other.position.x) + Math.abs(pos.y - other.position.y);
+    if (dist <= MAX_TALK_DISTANCE) {
+      actions.push({
+        action: "TALK",
+        target: other.name,
+        message: "<your message>",
+      });
+    }
+  }
+
+  // PICKUP actions - items on adjacent tiles
+  for (const adjPos of adjacentPositions) {
+    if (
+      adjPos.x < 0 ||
+      adjPos.x >= world.width ||
+      adjPos.y < 0 ||
+      adjPos.y >= world.height
+    )
+      continue;
+    const tile = world.tiles[adjPos.y][adjPos.x];
+    for (const item of tile.items) {
+      actions.push({ action: "PICKUP", target: item.name });
+    }
+  }
+
+  // EQUIP actions - weapons/clothing in inventory
+  for (const item of character.inventory) {
+    if (item.type === "weapon" && character.equippedWeapon?.id !== item.id) {
+      actions.push({ action: "EQUIP", target: item.name });
+    }
+    if (
+      item.type === "clothing" &&
+      character.equippedClothing?.id !== item.id
+    ) {
+      actions.push({ action: "EQUIP", target: item.name });
+    }
+  }
+
+  // UNEQUIP actions
+  if (character.equippedWeapon) {
+    actions.push({ action: "UNEQUIP", target: "weapon" });
+  }
+  if (character.equippedClothing) {
+    actions.push({ action: "UNEQUIP", target: "clothing" });
+  }
+
+  // USE actions - consumable items
+  for (const item of character.inventory) {
+    if (item.useEffect) {
+      actions.push({ action: "USE", target: item.name });
+    }
+  }
+
+  // DROP actions - any item in inventory
+  for (const item of character.inventory) {
+    actions.push({ action: "DROP", target: item.name });
+  }
+
+  // SEARCH actions - adjacent unsearched chests
+  for (const adjPos of adjacentPositions) {
+    if (
+      adjPos.x < 0 ||
+      adjPos.x >= world.width ||
+      adjPos.y < 0 ||
+      adjPos.y >= world.height
+    )
+      continue;
+    const tile = world.tiles[adjPos.y][adjPos.x];
+    if (tile.feature?.type === "chest" && !tile.feature.searched) {
+      actions.push({ action: "SEARCH", target: tile.feature.name });
+    }
+  }
+
+  // UNLOCK actions - adjacent locked doors with matching key
+  for (const adjPos of adjacentPositions) {
+    if (
+      adjPos.x < 0 ||
+      adjPos.x >= world.width ||
+      adjPos.y < 0 ||
+      adjPos.y >= world.height
+    )
+      continue;
+    const tile = world.tiles[adjPos.y][adjPos.x];
+    if (tile.feature?.type === "door" && tile.feature.locked) {
+      const hasKey = character.inventory.some(
+        (i) => i.type === "key" && i.unlocksFeatureId === tile.feature?.id
+      );
+      if (hasKey) {
+        actions.push({ action: "UNLOCK", target: tile.feature.name });
+      }
+    }
+  }
+
+  // PLACE actions - traps on adjacent walkable tiles
+  const traps = character.inventory.filter((i) => i.type === "trap");
+  if (traps.length > 0) {
+    for (const adjPos of adjacentPositions) {
+      if (
+        adjPos.x < 0 ||
+        adjPos.x >= world.width ||
+        adjPos.y < 0 ||
+        adjPos.y >= world.height
+      )
+        continue;
+      const tile = world.tiles[adjPos.y][adjPos.x];
+      if (tile.type !== "wall" && tile.type !== "water" && !tile.feature) {
+        for (const trap of traps) {
+          actions.push({
+            action: "PLACE",
+            x: adjPos.x,
+            y: adjPos.y,
+            target: trap.name,
+          });
+        }
+      }
+    }
+  }
+
+  // CONTRACT actions - offer to characters within talk distance
+  for (const other of world.characters) {
+    if (other.id === character.id || !other.alive) continue;
+    const dist =
+      Math.abs(pos.x - other.position.x) + Math.abs(pos.y - other.position.y);
+    if (dist <= MAX_TALK_DISTANCE) {
+      actions.push({
+        action: "CONTRACT",
+        target: other.name,
+        terms: "<contract terms>",
+        expiry: "<turns until expiry>",
+      });
+    }
+  }
+
+  // Always available actions
+  actions.push({ action: "WAIT" });
+
+  return JSON.stringify(actions, null, 2);
+}
+
 function formatKnowledge(
   world: World,
   character: Character,
@@ -393,9 +566,6 @@ function formatKnowledge(
     }
   }
 
-  // Check for movement-preventing effects
-  const movementBlocker = character.effects.find((e) => e.preventsMovement);
-
   // Check for attack modifiers from effects
   const hasAttackDebuff = character.effects.some((e) =>
     e.triggers.some(
@@ -421,12 +591,6 @@ function formatKnowledge(
     lines.push(`*** YOU ARE UNARMED (fists only, 1 damage) ***`);
   }
 
-  if (movementBlocker) {
-    lines.push(
-      `*** CANNOT MOVE due to ${movementBlocker.name}! (${movementBlocker.duration} turns remaining) ***`
-    );
-  }
-
   lines.push(
     `\nInventory: ${
       knowledge.status.inventory.length > 0
@@ -434,131 +598,6 @@ function formatKnowledge(
         : "(empty)"
     }`
   );
-
-  // Check for traps in inventory
-  const trapsInInventory = knowledge.status.inventory.filter(
-    (i) => i.type === "trap"
-  );
-  if (trapsInInventory.length > 0) {
-    lines.push(
-      `  -> You have a trap! Use PLACE to set it where enemies will walk.`
-    );
-  }
-
-  const usableItems = knowledge.status.inventory.filter(
-    (i) => i.useEffect !== undefined
-  );
-  if (usableItems.length > 0) {
-    const usableDescriptions = usableItems.map((i) => {
-      const effect = i.useEffect;
-      if (!effect) return i.name;
-      switch (effect.type) {
-        case "heal":
-          return `${i.name} (heals ${effect.amount} HP)`;
-        case "damage":
-          return `${i.name} (deals ${effect.amount} damage to self)`;
-        case "apply_effect":
-          return `${i.name} (applies ${effect.effect.name})`;
-        case "message":
-          return `${i.name} (${effect.text})`;
-        default:
-          return i.name;
-      }
-    });
-    lines.push(`  -> Usable items: ${usableDescriptions.join(", ")}`);
-  }
-
-  const visibleChars = knowledge.visible.characters;
-  const livingEnemies = visibleChars.filter(({ character: c }) => c.alive);
-  const deadEnemies = visibleChars.filter(({ character: c }) => !c.alive);
-
-  lines.push(`\n=== ENEMIES ===`);
-  if (livingEnemies.length > 0) {
-    for (const { character: other, position } of livingEnemies) {
-      const dist = chebyshevDistance(character.position, position);
-      const canAttack = isAdjacent(character.position, position);
-      const weapon = other.equippedWeapon
-        ? `armed with ${other.equippedWeapon.name}`
-        : "unarmed";
-      const effectStatus =
-        other.effects.length > 0
-          ? `, EFFECTS: ${other.effects
-              .map((e) => `${e.name}(${e.duration}t: ${describeEffect(e)})`)
-              .join(", ")}`
-          : "";
-
-      if (canAttack) {
-        lines.push(
-          `  *** ${other.name} at ${formatPosition(
-            position
-          )} is ADJACENT - CAN ATTACK or TALK! *** [HP: ${other.hp}/${
-            other.maxHp
-          }, ${weapon}${effectStatus}]`
-        );
-      } else if (dist <= MAX_TALK_DISTANCE) {
-        lines.push(
-          `  ** ${other.name} at ${formatPosition(
-            position
-          )} - CAN TALK (distance: ${dist}) ** [HP: ${other.hp}/${
-            other.maxHp
-          }, ${weapon}${effectStatus}]`
-        );
-      } else {
-        lines.push(
-          `  - ${other.name} at ${formatPosition(position)} [HP: ${other.hp}/${
-            other.maxHp
-          }, ${weapon}${effectStatus}] - distance: ${dist} tiles`
-        );
-      }
-    }
-  } else {
-    lines.push(`  No living enemies visible`);
-  }
-
-  // Show corpses separately
-  if (deadEnemies.length > 0) {
-    lines.push(`\n=== CORPSES ===`);
-    for (const { character: other, position } of deadEnemies) {
-      lines.push(`  - ${other.name}'s corpse at ${formatPosition(position)}`);
-    }
-  }
-
-  const reachable = getReachableTiles(world, character);
-  const pos = knowledge.status.position;
-
-  if (!hasMoved) {
-    lines.push(`\n=== TILES YOU CAN MOVE TO ===`);
-    if (reachable.length > 0) {
-      const reachableStr = reachable.map((p) => `(${p.x},${p.y})`).join(", ");
-      lines.push(reachableStr);
-    } else {
-      lines.push(`None - you are blocked!`);
-    }
-  }
-
-  // Show all known objects (items)
-  const allItems = knowledge.visible.items;
-  if (allItems.length > 0) {
-    lines.push(`\n=== KNOWN OBJECTS ===`);
-    for (const { item, position } of allItems) {
-      const adjacent = isAdjacent(pos, position);
-      let desc = `${item.name} at ${formatPosition(position)}`;
-
-      if (item.type === "weapon") {
-        desc += ` [weapon, ${item.damage} damage]`;
-        if (adjacent)
-          desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
-      } else if (item.type === "trap") {
-        desc += ` [trap]`;
-        if (adjacent)
-          desc += ` - can PICKUP ${position.x} ${position.y} "${item.name}"`;
-      } else {
-        if (adjacent) desc += ` - ADJACENT`;
-      }
-
-      lines.push(`  - ${desc}`);
-    }
-  }
 
   // Show active contracts the character is party to
   const myContracts = world.activeContracts.filter(
@@ -589,70 +628,14 @@ function formatKnowledge(
     lines.push(`  No memories yet.`);
   }
 
-  // Check who can be talked to (within 4 tiles) - for context
-  const talkableChars = knowledge.visible.characters.filter(({ position }) => {
-    const dist = manhattanDistance(character.position, position);
-    return dist <= MAX_TALK_DISTANCE;
-  });
-  if (talkableChars.length > 0) {
-    const talkTargets = talkableChars
-      .map(({ character: c, position }) => {
-        const dist = manhattanDistance(character.position, position);
-        return `${c.name} (${dist} tiles)`;
-      })
-      .join(", ");
-    lines.push(`\n=== WHO YOU CAN TALK TO (4 tiles) ===`);
-    lines.push(`  ${talkTargets}`);
-  }
-
-  // Show features from visible tiles (doors, chests)
-  const featureTiles: {
-    feature: Feature;
-    x: number;
-    y: number;
-    dist: number;
-  }[] = [];
-  for (const visibleTile of knowledge.visible.tiles) {
-    if (visibleTile.feature) {
-      const dist = chebyshevDistance(pos, visibleTile.position);
-      featureTiles.push({
-        feature: visibleTile.feature,
-        x: visibleTile.position.x,
-        y: visibleTile.position.y,
-        dist,
-      });
-    }
-  }
-
-  if (featureTiles.length > 0) {
-    lines.push(`\n=== FEATURES ===`);
-    for (const tile of featureTiles) {
-      const adjacent = tile.dist <= 1;
-      let desc = `  - ${tile.feature.name} at (${tile.x}, ${tile.y}) - distance: ${tile.dist}`;
-      if (tile.feature.type === "door") {
-        const hasMatchingKey = knowledge.status.inventory.some(
-          (i) => i.type === "key" && i.unlocksFeatureId === tile.feature.id
-        );
-        if (adjacent && hasMatchingKey) {
-          desc += ` *** ADJACENT - can UNLOCK ***`;
-        } else if (adjacent) {
-          desc += ` - ADJACENT but you need a key`;
-        } else if (hasMatchingKey) {
-          desc += ` - you have the key!`;
-        }
-      } else if (tile.feature.type === "chest") {
-        if (adjacent) {
-          desc += ` - can SEARCH${
-            tile.feature.searched ? " (already searched)" : ""
-          }`;
-        }
-      }
-      lines.push(desc);
-    }
-  }
-
   lines.push(`\n=== YOUR MAP ===`);
   lines.push(`\n${generateMapJson(world, character)}`);
+
+  lines.push(`\n=== LEGAL ACTIONS ===`);
+  lines.push(
+    `Choose one of these actions. Parameters shown as <placeholder> must be filled in by you.`
+  );
+  lines.push(`\n${generateLegalActions(world, character, hasMoved)}`);
 
   return lines.join("\n");
 }
@@ -1161,11 +1144,7 @@ export async function getAgentDecision(
       historySection += `${i + 1}. Your response: ${rawJson}\n`;
       historySection += `   Result: ${result}\n\n`;
     }
-    if (hasMoved) {
-      historySection += `⛔ MOVE UNAVAILABLE. Choose: SEARCH, PICKUP, EQUIP, ATTACK, TALK, or WAIT.\n`;
-    } else {
-      historySection += `You can still take more actions before ending your turn.\n`;
-    }
+
     situationDescription = situationDescription + historySection;
   }
 
@@ -1287,16 +1266,16 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 
 AVAILABLE ACTIONS:
 ${moveAction}
-- ATTACK: Attack ADJACENT character (1 tile away). Requires target name. Ends turn.
+- ATTACK: Attack character. Ends turn.
 ${talkAction}
-- SEARCH: Search adjacent container. Requires target (container name).
+- SEARCH: Search adjacent container.
 ${pickupAction}
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name). You cannot equip and attack in the same turn.
-- UNEQUIP: Unequip weapon/clothing. Requires target (item name). Can signal good faith to others.
-- USE: Use a consumable item from inventory. Requires target (item name). Consumes the item.
-- PLACE: Place trap on ADJACENT tile. Requires x,y and target (trap name).
+- UNEQUIP: Unequip weapon/clothing. Can signal good faith to others.
+- USE: Use a consumable item from inventory. Consumes the item.
+- PLACE: Place trap on an adjacent tile.
 ${unlockAction}
-- DROP: Drop item from inventory. Requires target (item name).
+- DROP: Drop item from inventory.
 - CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
 - WAIT: End turn. No parameters.
 

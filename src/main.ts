@@ -481,7 +481,7 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
   let extraHtml = "";
   if (event.judgePrompt) {
     const eventIdx = world.events.length - 1;
-    extraHtml = `<div style="margin-top: 4px;"><a href="#" class="show-judge-prompt" data-event-idx="${eventIdx}" style="font-size: 11px; color: var(--accent-blue);">📜 Show Judge Prompt</a></div>`;
+    extraHtml = `<div style="margin-top: 4px;"><a href="#" class="copy-judge-prompt" data-event-idx="${eventIdx}" style="font-size: 11px; color: var(--accent-blue);">📋 Copy Judge Prompt</a></div>`;
   }
 
   const logClass = event.sound ? soundClass[event.sound] ?? "" : "";
@@ -494,14 +494,13 @@ function addLogEntry(event: GameEvent, snapshotIdx?: number): void {
 
   entry.addEventListener("click", () => handleLogEntryClick(entry));
 
-  // Add judge prompt click handler
-  const judgeLink = entry.querySelector(".show-judge-prompt");
+  const judgeLink = entry.querySelector(".copy-judge-prompt");
   if (judgeLink) {
     judgeLink.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       const idx = parseInt((e.target as HTMLElement).dataset.eventIdx || "0");
-      showJudgePrompt(idx);
+      copyJudgePromptToClipboard(idx, e.target as HTMLElement);
     });
   }
 
@@ -570,19 +569,10 @@ function addReasoningEntry(
   `
     : "";
 
+  const decisionIdx = allAgentDecisions.length - 1;
   const promptHtml =
     fullPrompt && fullResponse
-      ? `
-    <details style="margin-top: 8px; font-size: 11px;">
-      <summary style="cursor: pointer; color: #666;">Show full prompt/response</summary>
-      <div style="margin-top: 8px; padding: 8px; background: #1a1a2e; border-radius: 4px; white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto;">
-        <div style="color: #6a6; margin-bottom: 8px;">PROMPT:</div>
-        <div style="color: #aaa;">${escapeHtml(fullPrompt)}</div>
-        <div style="color: #66a; margin-top: 12px; margin-bottom: 8px;">RESPONSE:</div>
-        <div style="color: #aaa;">${escapeHtml(fullResponse)}</div>
-      </div>
-    </details>
-  `
+      ? `<div style="margin-top: 4px;"><a href="#" class="copy-agent-prompt" data-decision-idx="${decisionIdx}" style="font-size: 11px; color: #666;">📋 Copy full prompt/response</a></div>`
       : "";
 
   entry.innerHTML = `
@@ -593,11 +583,20 @@ function addReasoningEntry(
     ${promptHtml}
   `;
 
+  const copyLink = entry.querySelector(".copy-agent-prompt");
+  if (copyLink) {
+    copyLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt(
+        (e.target as HTMLElement).dataset.decisionIdx || "0"
+      );
+      copyAgentPromptToClipboard(idx, e.target as HTMLElement);
+    });
+  }
+
   entry.addEventListener("click", (e) => {
-    if (
-      (e.target as HTMLElement).tagName !== "SUMMARY" &&
-      !(e.target as HTMLElement).closest("details")
-    ) {
+    if (!(e.target as HTMLElement).closest(".copy-agent-prompt")) {
       handleLogEntryClick(entry);
     }
   });
@@ -859,39 +858,43 @@ function hideContractsPanel(): void {
   if (panel) panel.style.display = "none";
 }
 
-function showJudgePrompt(eventIdx: number): void {
+function copyJudgePromptToClipboard(
+  eventIdx: number,
+  linkEl: HTMLElement
+): void {
   const event = world.events[eventIdx];
   if (!event || !event.judgePrompt) return;
 
-  const panel = document.getElementById("inspector-panel");
-  const content = document.getElementById("inspector-content");
-  const title = document.getElementById("inspector-title");
+  let textToCopy = `PROMPT:\n${event.judgePrompt}`;
+  if (event.judgeResponse) {
+    textToCopy += `\n\nRESPONSE:\n${event.judgeResponse}`;
+  }
 
-  if (!panel || !content || !title) return;
+  navigator.clipboard.writeText(textToCopy).then(() => {
+    const originalText = linkEl.textContent;
+    linkEl.textContent = "✓ Copied!";
+    setTimeout(() => {
+      linkEl.textContent = originalText;
+    }, 1500);
+  });
+}
 
-  title.textContent = "⚖️ Great Judge - Full Prompt";
+function copyAgentPromptToClipboard(
+  decisionIdx: number,
+  linkEl: HTMLElement
+): void {
+  const decision = allAgentDecisions[decisionIdx];
+  if (!decision) return;
 
-  const promptHtml = `
-    <div style="margin-bottom: 1rem;">
-      <h4 style="color: var(--accent-blue); margin-bottom: 0.5rem;">Prompt sent to Judge:</h4>
-      <pre style="white-space: pre-wrap; font-size: 11px; background: var(--bg-tertiary); padding: 0.5rem; border-radius: 4px; max-height: 300px; overflow-y: auto;">${escapeHtml(
-        event.judgePrompt
-      )}</pre>
-    </div>
-    ${
-      event.judgeResponse
-        ? `<div>
-        <h4 style="color: var(--accent-green); margin-bottom: 0.5rem;">Judge Response:</h4>
-        <pre style="white-space: pre-wrap; font-size: 11px; background: var(--bg-tertiary); padding: 0.5rem; border-radius: 4px;">${escapeHtml(
-          event.judgeResponse
-        )}</pre>
-      </div>`
-        : ""
-    }
-  `;
+  const textToCopy = `PROMPT:\n${decision.fullPrompt}\n\nRESPONSE:\n${decision.fullResponse}`;
 
-  content.innerHTML = promptHtml;
-  panel.style.display = "block";
+  navigator.clipboard.writeText(textToCopy).then(() => {
+    const originalText = linkEl.textContent;
+    linkEl.textContent = "✓ Copied!";
+    setTimeout(() => {
+      linkEl.textContent = originalText;
+    }, 1500);
+  });
 }
 
 function updateContractsPanel(): void {
