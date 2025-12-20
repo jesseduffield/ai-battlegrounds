@@ -15,6 +15,12 @@ import {
   setSpeakingCharacter,
 } from "./renderer";
 import {
+  render3D,
+  createCamera,
+  rotateCamera,
+  type Camera,
+} from "./renderer-3d";
+import {
   executeAction,
   getReachableTiles,
   getVisibleTiles,
@@ -64,7 +70,11 @@ let logSequence = 0;
 
 let world: World;
 let canvas: HTMLCanvasElement;
+let canvas3D: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
+let ctx3D: CanvasRenderingContext2D;
+let camera: Camera;
+let is3DView = false;
 let currentCharacterIndex = 0;
 let isProcessingTurn = false;
 let autoPlayInterval: number | null = null;
@@ -676,15 +686,25 @@ function renderWorld(): void {
     aliveChars.length > 0
       ? aliveChars[currentIdx % aliveChars.length]
       : undefined;
-  const reachable =
-    current && !viewingSnapshot
-      ? getReachableTiles(displayWorld, current)
-      : undefined;
-  const visible =
-    current && !viewingSnapshot
-      ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
-      : undefined;
-  render(ctx, displayWorld, current, reachable, visible, current?.id);
+
+  if (is3DView) {
+    // Update camera to follow current character
+    if (current) {
+      camera.followCharacterId = current.id;
+    }
+    render3D(ctx3D, displayWorld, camera);
+  } else {
+    // 2D rendering
+    const reachable =
+      current && !viewingSnapshot
+        ? getReachableTiles(displayWorld, current)
+        : undefined;
+    const visible =
+      current && !viewingSnapshot
+        ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
+        : undefined;
+    render(ctx, displayWorld, current, reachable, visible, current?.id);
+  }
 }
 
 function handleCanvasClick(event: MouseEvent): void {
@@ -2740,9 +2760,20 @@ function init(): void {
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
 
+  canvas3D = document.getElementById("game-canvas-3d") as HTMLCanvasElement;
+  ctx3D = canvas3D.getContext("2d")!;
+
+  // Initialize camera following first character
+  const firstChar = world.characters[0];
+  camera = createCamera(firstChar?.id || null);
+
   const size = getCanvasSize(world);
   canvas.width = size.width;
   canvas.height = size.height;
+
+  // 3D canvas size matches 2D canvas for consistent display
+  canvas3D.width = 640;
+  canvas3D.height = 480;
 
   showApiKeyPrompt();
   initEditor();
@@ -2790,6 +2821,50 @@ function init(): void {
       const action = (btn as HTMLElement).dataset.action;
       if (action) selectPlayerAction(action);
     });
+  });
+
+  // 3D view toggle
+  const toggleViewBtn = document.getElementById("toggle-view");
+  toggleViewBtn?.addEventListener("click", () => {
+    is3DView = !is3DView;
+    canvas.style.display = is3DView ? "none" : "block";
+    canvas3D.style.display = is3DView ? "block" : "none";
+    const cameraControls = document.getElementById("camera-controls");
+    if (cameraControls) {
+      cameraControls.style.display = is3DView ? "flex" : "none";
+    }
+    if (toggleViewBtn) {
+      toggleViewBtn.textContent = is3DView ? "2D View" : "3D View";
+    }
+    renderWorld();
+  });
+
+  // Camera rotation controls
+  const rotateLeftBtn = document.getElementById("rotate-left");
+  rotateLeftBtn?.addEventListener("click", () => {
+    rotateCamera(camera, Math.PI / 6); // 30 degrees left (counter-clockwise)
+    if (is3DView) renderWorld();
+  });
+
+  const rotateRightBtn = document.getElementById("rotate-right");
+  rotateRightBtn?.addEventListener("click", () => {
+    rotateCamera(camera, -Math.PI / 6); // 30 degrees right (clockwise)
+    if (is3DView) renderWorld();
+  });
+
+  // Keyboard controls for camera (arrow keys)
+  document.addEventListener("keydown", (e) => {
+    if (!is3DView) return;
+
+    if (e.key === "ArrowLeft") {
+      rotateCamera(camera, Math.PI / 12); // 15 degrees left (counter-clockwise)
+      renderWorld();
+      e.preventDefault();
+    } else if (e.key === "ArrowRight") {
+      rotateCamera(camera, -Math.PI / 12); // 15 degrees right (clockwise)
+      renderWorld();
+      e.preventDefault();
+    }
   });
 
   const exportLogsBtn = document.getElementById("export-logs-btn");

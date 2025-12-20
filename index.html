@@ -129,6 +129,17 @@
       cursor: crosshair;
     }
 
+    #game-canvas-3d {
+      border: 2px solid var(--border-color);
+      box-shadow:
+        0 0 40px rgba(68, 136, 255, 0.1),
+        inset 0 0 20px rgba(0, 0, 0, 0.5);
+      image-rendering: pixelated;
+      image-rendering: -moz-crisp-edges;
+      image-rendering: crisp-edges;
+      cursor: crosshair;
+    }
+
     .sidebar {
       background: var(--bg-panel);
       border-left: 1px solid var(--border-color);
@@ -881,7 +892,17 @@
         Viewing Turn <span id="history-turn">1</span>
         <button id="return-to-present">Return to Present</button>
       </div>
-      <canvas id="game-canvas" width="640" height="480"></canvas>
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+        <button id="toggle-view" class="btn-secondary">3D View</button>
+        <div id="camera-controls" style="display: none; gap: 0.5rem;">
+          <button id="rotate-left" class="btn-secondary">◄ Rotate Left</button>
+          <button id="rotate-right" class="btn-secondary">Rotate Right ►</button>
+        </div>
+      </div>
+      <div style="position: relative;">
+        <canvas id="game-canvas" width="640" height="480"></canvas>
+        <canvas id="game-canvas-3d" width="640" height="480" style="display: none;"></canvas>
+      </div>
       <div class="thought-bubble placeholder" id="thought-bubble">
         <div class="thought-header">
           <span class="thought-mode" id="thought-mode">💭</span>
