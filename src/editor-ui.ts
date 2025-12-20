@@ -12,6 +12,7 @@ import {
   editorStateToWorld,
   saveEditorStateToStorage,
   loadEditorStateFromStorage,
+  AI_MODELS,
 } from "./editor";
 import type {
   TileType,
@@ -1190,6 +1191,20 @@ function updateActionField(
 };
 
 function setupCharacterForm(): void {
+  // Populate AI model dropdown
+  const modelSelect = document.getElementById(
+    "char-model"
+  ) as HTMLSelectElement;
+  if (modelSelect) {
+    modelSelect.innerHTML = "";
+    for (const model of AI_MODELS) {
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      modelSelect.appendChild(option);
+    }
+  }
+
   const charFormPanel = document.getElementById("character-form-panel");
   const cancelCharBtn = document.getElementById("cancel-char-btn");
   const saveCharBtn = document.getElementById("save-char-btn");
