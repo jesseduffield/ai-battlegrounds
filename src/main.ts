@@ -14,7 +14,6 @@ import {
   setThinkingCharacter,
   setSpeakingCharacter,
 } from "./renderer";
-import { getUnexploredFrontierTiles } from "./agent";
 import {
   executeAction,
   getReachableTiles,
@@ -38,7 +37,7 @@ import {
 } from "./agent";
 import type { World, Character, GameEvent, Position, Action } from "./types";
 import { playSoundForEvent } from "./sounds";
-import { initializeSpeech, speakText } from "./speech";
+import { initializeSpeech, speakText, speakJudgeVerdict } from "./speech";
 import { initEditor, getCustomWorld } from "./editor-ui";
 
 type WorldSnapshot = {
@@ -240,6 +239,9 @@ async function processExpiredContracts(): Promise<void> {
 
     // Judge the contract
     const verdict = await judgeContract(contract, world.events, world);
+
+    // Speak the judgment with the deep judge voice
+    speakJudgeVerdict(verdict.verdict);
 
     // Log the judgment
     const judgmentEvent: GameEvent = {
@@ -693,11 +695,7 @@ function renderWorld(): void {
     current && !viewingSnapshot
       ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
       : undefined;
-  const frontier =
-    current && !viewingSnapshot
-      ? getUnexploredFrontierTiles(displayWorld, current)
-      : undefined;
-  render(ctx, displayWorld, current, reachable, visible, current?.id, frontier);
+  render(ctx, displayWorld, current, reachable, visible, current?.id);
 }
 
 function handleCanvasClick(event: MouseEvent): void {

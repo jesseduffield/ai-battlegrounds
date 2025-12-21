@@ -3,7 +3,8 @@ import { Character } from "./types";
 
 let openai: OpenAI | null = null;
 
-const MALE_VOICES = ["echo", "onyx", "fable", "ash"] as const;
+const JUDGE_VOICE = "onyx";
+const MALE_VOICES = ["echo", "fable", "ash"] as const;
 const FEMALE_VOICES = ["nova", "shimmer", "alloy", "sage", "coral"] as const;
 
 const characterVoiceMap = new Map<string, string>();
@@ -59,6 +60,41 @@ export async function speakText(
       voice: voice as any,
       input: text,
       speed: 1.5,
+    });
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+
+    currentAudio = new Audio(url);
+    currentAudio.play();
+
+    currentAudio.onended = () => {
+      URL.revokeObjectURL(url);
+      currentAudio = null;
+    };
+  } catch (err) {
+    console.error("TTS error:", err);
+  }
+}
+
+export async function speakJudgeVerdict(text: string): Promise<void> {
+  if (!openai) {
+    console.warn("Speech not initialized");
+    return;
+  }
+
+  // Stop any currently playing audio
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+
+  try {
+    const response = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: JUDGE_VOICE,
+      input: text,
+      speed: 1.3,
     });
 
     const blob = await response.blob();

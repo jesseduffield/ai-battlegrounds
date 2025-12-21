@@ -504,8 +504,7 @@ export function render(
   highlightedCharacter?: Character,
   reachableTiles?: Position[],
   visibleTiles?: Position[],
-  currentCharacterId?: string,
-  frontierTiles?: Position[]
+  currentCharacterId?: string
 ): void {
   // Disable image smoothing for crisp pixel art
   ctx.imageSmoothingEnabled = false;
@@ -551,15 +550,6 @@ export function render(
       const px = pos.x * TILE_SIZE;
       const py = pos.y * TILE_SIZE;
       ctx.fillStyle = COLORS.reachable;
-      ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-    }
-  }
-
-  if (frontierTiles) {
-    for (const pos of frontierTiles) {
-      const px = pos.x * TILE_SIZE;
-      const py = pos.y * TILE_SIZE;
-      ctx.fillStyle = COLORS.frontier;
       ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
     }
   }
