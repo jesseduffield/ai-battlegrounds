@@ -22,6 +22,10 @@ npm run dev
 
 Then open http://localhost:3000 in your browser.
 
+# Work in progress
+
+Although this is certainly at MVP stage, it's very much a work in progress.
+
 ## Donate
 
 I blew 500 bucks on Opus 4.5 writing the code for this, so PLEASE consider donating [here](https://github.com/jesseduffield)

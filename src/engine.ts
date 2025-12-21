@@ -955,18 +955,42 @@ export function executeAction(
       }
 
       // Find path to destination (allow long paths)
-      const fullPath = findPath(
+      let fullPath = findPath(
         world,
         character.position,
         action.targetPosition,
         1000 // Allow very long paths
       );
+
+      // If no path found, try to get as close as possible
       if (!fullPath || fullPath.length === 0) {
-        return {
-          success: false,
-          message: `Cannot find path to (${action.targetPosition.x}, ${action.targetPosition.y})`,
-          events,
-        };
+        // Find the reachable tile closest to the target
+        const reachable = getReachableTiles(world, character);
+        if (reachable.length === 0) {
+          return {
+            success: false,
+            message: `Cannot move - no reachable tiles`,
+            events,
+          };
+        }
+
+        // Calculate distance to target for each reachable tile
+        const target = action.targetPosition;
+        const closest = reachable.reduce((best, tile) => {
+          const distToCurrent = Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y);
+          const distToBest = Math.abs(best.x - target.x) + Math.abs(best.y - target.y);
+          return distToCurrent < distToBest ? tile : best;
+        });
+
+        // Create a path to the closest tile
+        fullPath = findPath(world, character.position, closest, character.movementRange);
+        if (!fullPath || fullPath.length === 0) {
+          return {
+            success: false,
+            message: `Cannot find path toward (${action.targetPosition.x}, ${action.targetPosition.y})`,
+            events,
+          };
+        }
       }
 
       // Take only as many steps as movementRange allows

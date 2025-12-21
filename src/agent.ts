@@ -429,20 +429,10 @@ export function getLegalActions(
       });
     }
 
-    // MOVE_TOWARD actions for frontier tiles (distant unexplored areas)
-    const frontierTiles = getUnexploredFrontierTiles(world, character);
-    for (const frontier of frontierTiles) {
-      // Only add if not already reachable in one turn
-      const isReachable = reachable.some(
-        (t) => t.x === frontier.x && t.y === frontier.y
-      );
-      if (!isReachable) {
-        legalActions.push({
-          display: { action: "MOVE_TOWARD", x: frontier.x, y: frontier.y },
-          action: { type: "move_toward", targetPosition: frontier },
-        });
-      }
-    }
+    // MOVE_TOWARD is available for ANY coordinates (not just frontier)
+    // The engine will handle pathfinding and get as close as possible
+    // We don't pre-generate all possible MOVE_TOWARD actions since there could be hundreds
+    // Instead, we document it and validate in parseJsonAction
   }
 
   // Use visible characters from knowledge
@@ -752,6 +742,33 @@ function formatKnowledge(
   lines.push(
     `Choose one of these actions. Parameters shown as <placeholder> must be filled in by you.`
   );
+
+  // Get legal actions to check what's available
+  const legalActions = getLegalActions(world, character, knowledge, hasMoved);
+
+  // Check if movement is available
+  const canMove = !character.effects.some((e) => e.preventsMovement);
+  const hasAttackActions = legalActions.some(
+    (la) => la.action.type === "attack"
+  );
+
+  if (hasMoved || !canMove || !hasAttackActions) {
+    lines.push(``);
+    if (hasMoved) {
+      lines.push(
+        `⚠️ DO NOT USE MOVE OR MOVE_TOWARD - YOU ALREADY MOVED THIS TURN.`
+      );
+    } else if (!canMove) {
+      lines.push(
+        `⚠️ DO NOT USE MOVE OR MOVE_TOWARD - YOU CANNOT MOVE (movement prevented by effect).`
+      );
+    }
+
+    if (!hasAttackActions) {
+      lines.push(`⚠️ DO NOT USE ATTACK - NO ADJACENT ENEMIES TO ATTACK.`);
+    }
+  }
+
   lines.push(
     `\n${generateLegalActionsJson(world, character, knowledge, hasMoved)}`
   );
@@ -923,20 +940,43 @@ function parseJsonAction(
       const targetX = jsonResponse.x;
       const targetY = jsonResponse.y;
 
-      // Find matching legal MOVE_TOWARD action
-      const legalMoveToward = legalActions.find(
-        (la) =>
-          la.action.type === "move_toward" &&
-          la.display.x === targetX &&
-          la.display.y === targetY
-      );
-      if (!legalMoveToward) {
+      // Check if movement is allowed
+      if (hasMoved) {
         return {
           action: null,
-          error: `MOVE_TOWARD (${targetX}, ${targetY}) is not a valid destination`,
+          error: "MOVE_TOWARD not allowed - already moved this turn",
         };
       }
-      return { action: legalMoveToward.action, error: null };
+
+      const canMove = !character.effects.some((e) => e.preventsMovement);
+      if (!canMove) {
+        return {
+          action: null,
+          error: "MOVE_TOWARD not allowed - movement prevented by effect",
+        };
+      }
+
+      // Validate coordinates are within world bounds
+      if (
+        targetX < 0 ||
+        targetX >= world.width ||
+        targetY < 0 ||
+        targetY >= world.height
+      ) {
+        return {
+          action: null,
+          error: `MOVE_TOWARD (${targetX}, ${targetY}) is outside world bounds`,
+        };
+      }
+
+      // Accept any valid coordinates - engine will handle pathfinding
+      return {
+        action: {
+          type: "move_toward",
+          targetPosition: { x: targetX, y: targetY },
+        },
+        error: null,
+      };
     }
 
     case "ATTACK": {
@@ -1254,6 +1294,7 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 
 Things to know:
 
+* Movement: Use MOVE for immediate destinations (listed in legal actions). You can only make one move per turn, so if you need to travel a large distance, don't just pick an adjacent tile. Use MOVE_TOWARD for any coordinate - it will pathfind and move as far as possible toward that location. If the destination is unreachable, you'll move toward it as close as possible.
 * Talking: MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Don't repeat something you've already said in prior turns: if you have nothing new to say, say nothing.
 * If you choose to attack, it will end your turn.
 * If you want to search a container, you must first step to an adjacent tile and then search it. Don't step onto the container itself.
