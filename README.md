@@ -1,5 +1,7 @@
 # AI Battlegrounds
 
+Play [here](https://jesseduffield.com/ai-battlegrounds/)
+
 <img width="1728" height="1001" alt="image" src="https://github.com/user-attachments/assets/08b3a78b-3fe7-4b32-b6d8-3f6932de2884" />
 
 It's about time we put LLM's in an ACTUAL arena. In this turn-based 2D grid game, AI agents explore, fight, cooperate, and deceive, to survive.
