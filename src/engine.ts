@@ -977,13 +977,20 @@ export function executeAction(
         // Calculate distance to target for each reachable tile
         const target = action.targetPosition;
         const closest = reachable.reduce((best, tile) => {
-          const distToCurrent = Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y);
-          const distToBest = Math.abs(best.x - target.x) + Math.abs(best.y - target.y);
+          const distToCurrent =
+            Math.abs(tile.x - target.x) + Math.abs(tile.y - target.y);
+          const distToBest =
+            Math.abs(best.x - target.x) + Math.abs(best.y - target.y);
           return distToCurrent < distToBest ? tile : best;
         });
 
         // Create a path to the closest tile
-        fullPath = findPath(world, character.position, closest, character.movementRange);
+        fullPath = findPath(
+          world,
+          character.position,
+          closest,
+          character.movementRange
+        );
         if (!fullPath || fullPath.length === 0) {
           return {
             success: false,
@@ -1059,7 +1066,10 @@ export function executeAction(
       character.position = finalPosition;
 
       const remainingDistance = fullPath.length - stepsToTake;
-      const arrivedAtDestination = positionsEqual(finalPosition, action.targetPosition);
+      const arrivedAtDestination = positionsEqual(
+        finalPosition,
+        action.targetPosition
+      );
 
       events.push({
         turn: world.turn,
