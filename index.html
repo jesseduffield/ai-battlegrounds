@@ -129,17 +129,6 @@
       cursor: crosshair;
     }
 
-    #game-canvas-3d {
-      border: 2px solid var(--border-color);
-      box-shadow:
-        0 0 40px rgba(68, 136, 255, 0.1),
-        inset 0 0 20px rgba(0, 0, 0, 0.5);
-      image-rendering: pixelated;
-      image-rendering: -moz-crisp-edges;
-      image-rendering: crisp-edges;
-      cursor: crosshair;
-    }
-
     .sidebar {
       background: var(--bg-panel);
       border-left: 1px solid var(--border-color);
@@ -334,6 +323,9 @@
       animation: fade-in 0.3s ease-out;
       height: 140px;
       visibility: hidden;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .thought-bubble.visible {
@@ -386,6 +378,7 @@
       margin-bottom: 0.5rem;
       padding-bottom: 0.5rem;
       border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
     }
 
     .thought-mode {
@@ -433,6 +426,9 @@
       font-style: italic;
       color: var(--text-primary);
       line-height: 1.5;
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
     }
 
     .memory-item {
@@ -879,6 +875,7 @@
         <option value="custom">📝 Custom Map</option>
       </select>
       <button id="restart-btn">🔄 Restart</button>
+      <button id="api-key-btn" title="Change API Key">🔑</button>
     </div>
     <div class="turn-info" id="turn-info">
       <div class="turn-badge">Turn: <span id="turn-number">1</span></div>
@@ -892,16 +889,8 @@
         Viewing Turn <span id="history-turn">1</span>
         <button id="return-to-present">Return to Present</button>
       </div>
-      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-        <button id="toggle-view" class="btn-secondary">3D View</button>
-        <div id="camera-controls" style="display: none; gap: 0.5rem;">
-          <button id="rotate-left" class="btn-secondary">◄ Rotate Left</button>
-          <button id="rotate-right" class="btn-secondary">Rotate Right ►</button>
-        </div>
-      </div>
       <div style="position: relative;">
         <canvas id="game-canvas" width="640" height="480"></canvas>
-        <canvas id="game-canvas-3d" width="640" height="480" style="display: none;"></canvas>
       </div>
       <div class="thought-bubble placeholder" id="thought-bubble">
         <div class="thought-header">

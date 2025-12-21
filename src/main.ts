@@ -16,12 +16,6 @@ import {
 } from "./renderer";
 import { getUnexploredFrontierTiles } from "./agent";
 import {
-  render3D,
-  createCamera,
-  rotateCamera,
-  type Camera,
-} from "./renderer-3d";
-import {
   executeAction,
   getReachableTiles,
   getVisibleTiles,
@@ -72,11 +66,7 @@ let logSequence = 0;
 
 let world: World;
 let canvas: HTMLCanvasElement;
-let canvas3D: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
-let ctx3D: CanvasRenderingContext2D;
-let camera: Camera;
-let is3DView = false;
 let currentCharacterIndex = 0;
 let isProcessingTurn = false;
 let autoPlayInterval: number | null = null;
@@ -695,36 +685,19 @@ function renderWorld(): void {
       ? aliveChars[currentIdx % aliveChars.length]
       : undefined;
 
-  if (is3DView) {
-    // Update camera to follow current character
-    if (current) {
-      camera.followCharacterId = current.id;
-    }
-    render3D(ctx3D, displayWorld, camera);
-  } else {
-    // 2D rendering
-    const reachable =
-      current && !viewingSnapshot
-        ? getReachableTiles(displayWorld, current)
-        : undefined;
-    const visible =
-      current && !viewingSnapshot
-        ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
-        : undefined;
-    const frontier =
-      current && !viewingSnapshot
-        ? getUnexploredFrontierTiles(displayWorld, current)
-        : undefined;
-    render(
-      ctx,
-      displayWorld,
-      current,
-      reachable,
-      visible,
-      current?.id,
-      frontier
-    );
-  }
+  const reachable =
+    current && !viewingSnapshot
+      ? getReachableTiles(displayWorld, current)
+      : undefined;
+  const visible =
+    current && !viewingSnapshot
+      ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
+      : undefined;
+  const frontier =
+    current && !viewingSnapshot
+      ? getUnexploredFrontierTiles(displayWorld, current)
+      : undefined;
+  render(ctx, displayWorld, current, reachable, visible, current?.id, frontier);
 }
 
 function handleCanvasClick(event: MouseEvent): void {
@@ -2674,15 +2647,6 @@ function showApiKeyPrompt(): void {
     return;
   }
 
-  const envKey =
-    "***REMOVED***";
-  if (envKey) {
-    localStorage.setItem("openai_api_key", envKey);
-    initializeAgent(envKey);
-    initializeSpeech(envKey);
-    return;
-  }
-
   const modal = document.createElement("div");
   modal.style.cssText = `
     position: fixed;
@@ -2756,6 +2720,92 @@ function showApiKeyPrompt(): void {
   });
 }
 
+function showChangeApiKeyModal(): void {
+  const currentKey = localStorage.getItem("openai_api_key");
+
+  const modal = document.createElement("div");
+  modal.style.cssText = `
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  `;
+
+  modal.innerHTML = `
+    <div style="
+      background: #12121a;
+      border: 1px solid #2a2a3a;
+      padding: 2rem;
+      border-radius: 8px;
+      max-width: 400px;
+      width: 90%;
+    ">
+      <h2 style="margin-bottom: 1rem; color: #ffcc44; font-family: 'Press Start 2P', cursive; font-size: 1rem;">
+        🔑 API Key Settings
+      </h2>
+      <p style="margin-bottom: 1rem; color: #8888a0; font-size: 0.85rem;">
+        ${
+          currentKey
+            ? "Your API key is stored locally. You can update or remove it below."
+            : "No API key is currently set. AI characters will use random actions."
+        }
+      </p>
+      <input
+        type="password"
+        id="change-api-key-input"
+        placeholder="sk-..."
+        value="${currentKey || ""}"
+        style="
+          width: 100%;
+          padding: 0.75rem;
+          background: #1a1a25;
+          border: 1px solid #2a2a3a;
+          border-radius: 4px;
+          color: #e8e8f0;
+          font-family: 'JetBrains Mono', monospace;
+          margin-bottom: 1rem;
+        "
+      />
+      <div style="display: flex; gap: 0.5rem;">
+        <button id="update-key-btn" style="flex: 1;" class="primary">Save</button>
+        <button id="clear-key-btn" style="flex: 1;">Clear Key</button>
+        <button id="cancel-key-btn" style="flex: 1;">Cancel</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const input = document.getElementById(
+    "change-api-key-input"
+  ) as HTMLInputElement;
+  const updateBtn = document.getElementById("update-key-btn");
+  const clearBtn = document.getElementById("clear-key-btn");
+  const cancelBtn = document.getElementById("cancel-key-btn");
+
+  updateBtn?.addEventListener("click", () => {
+    const apiKey = input.value.trim();
+    if (apiKey) {
+      localStorage.setItem("openai_api_key", apiKey);
+      initializeAgent(apiKey);
+      initializeSpeech(apiKey);
+    }
+    modal.remove();
+  });
+
+  clearBtn?.addEventListener("click", () => {
+    localStorage.removeItem("openai_api_key");
+    modal.remove();
+  });
+
+  cancelBtn?.addEventListener("click", () => {
+    modal.remove();
+  });
+}
+
 function init(): void {
   // Load saved map selection and set dropdown before creating world
   const mapSelect = document.getElementById("map-select") as HTMLSelectElement;
@@ -2780,20 +2830,9 @@ function init(): void {
   canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   ctx = canvas.getContext("2d")!;
 
-  canvas3D = document.getElementById("game-canvas-3d") as HTMLCanvasElement;
-  ctx3D = canvas3D.getContext("2d")!;
-
-  // Initialize camera following first character
-  const firstChar = world.characters[0];
-  camera = createCamera(firstChar?.id || null);
-
   const size = getCanvasSize(world);
   canvas.width = size.width;
   canvas.height = size.height;
-
-  // 3D canvas size matches 2D canvas for consistent display
-  canvas3D.width = 640;
-  canvas3D.height = 480;
 
   showApiKeyPrompt();
   initEditor();
@@ -2807,6 +2846,9 @@ function init(): void {
 
   const restartBtn = document.getElementById("restart-btn");
   restartBtn?.addEventListener("click", restartGame);
+
+  const apiKeyBtn = document.getElementById("api-key-btn");
+  apiKeyBtn?.addEventListener("click", showChangeApiKeyModal);
 
   // Save to localStorage when map changes
   mapSelect?.addEventListener("change", () => {
@@ -2841,50 +2883,6 @@ function init(): void {
       const action = (btn as HTMLElement).dataset.action;
       if (action) selectPlayerAction(action);
     });
-  });
-
-  // 3D view toggle
-  const toggleViewBtn = document.getElementById("toggle-view");
-  toggleViewBtn?.addEventListener("click", () => {
-    is3DView = !is3DView;
-    canvas.style.display = is3DView ? "none" : "block";
-    canvas3D.style.display = is3DView ? "block" : "none";
-    const cameraControls = document.getElementById("camera-controls");
-    if (cameraControls) {
-      cameraControls.style.display = is3DView ? "flex" : "none";
-    }
-    if (toggleViewBtn) {
-      toggleViewBtn.textContent = is3DView ? "2D View" : "3D View";
-    }
-    renderWorld();
-  });
-
-  // Camera rotation controls
-  const rotateLeftBtn = document.getElementById("rotate-left");
-  rotateLeftBtn?.addEventListener("click", () => {
-    rotateCamera(camera, Math.PI / 6); // 30 degrees left (counter-clockwise)
-    if (is3DView) renderWorld();
-  });
-
-  const rotateRightBtn = document.getElementById("rotate-right");
-  rotateRightBtn?.addEventListener("click", () => {
-    rotateCamera(camera, -Math.PI / 6); // 30 degrees right (clockwise)
-    if (is3DView) renderWorld();
-  });
-
-  // Keyboard controls for camera (arrow keys)
-  document.addEventListener("keydown", (e) => {
-    if (!is3DView) return;
-
-    if (e.key === "ArrowLeft") {
-      rotateCamera(camera, Math.PI / 12); // 15 degrees left (counter-clockwise)
-      renderWorld();
-      e.preventDefault();
-    } else if (e.key === "ArrowRight") {
-      rotateCamera(camera, -Math.PI / 12); // 15 degrees right (clockwise)
-      renderWorld();
-      e.preventDefault();
-    }
   });
 
   const exportLogsBtn = document.getElementById("export-logs-btn");
