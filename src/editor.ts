@@ -235,7 +235,7 @@ export function importWorldFromJson(json: string): EditorState {
   return worldToEditorState(world);
 }
 
-const STORAGE_KEY = "ailand-editor-state";
+const STORAGE_KEY = "ai-battlegrounds-editor-state";
 
 export function saveEditorStateToStorage(state: EditorState): void {
   try {

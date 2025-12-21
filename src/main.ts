@@ -95,7 +95,7 @@ function createWorldFromSelection(mapType: MapType): World {
   }
 }
 
-const MAP_SELECTION_STORAGE_KEY = "ailand_selected_map";
+const MAP_SELECTION_STORAGE_KEY = "ai-battlegrounds_selected_map";
 
 function getSelectedMap(): MapType {
   const select = document.getElementById("map-select") as HTMLSelectElement;
@@ -2463,7 +2463,7 @@ function exportLogs(): void {
   const lines: string[] = [];
 
   lines.push("=".repeat(80));
-  lines.push("AILAND GAME LOG EXPORT");
+  lines.push("AI BATTLEGROUNDS GAME LOG EXPORT");
   lines.push(`Exported at: ${new Date().toISOString()}`);
   lines.push(`Current Turn: ${world.turn}`);
   lines.push("=".repeat(80));
@@ -2587,7 +2587,7 @@ function getCompactLogText(): string {
   const lines: string[] = [];
 
   lines.push("=".repeat(80));
-  lines.push("AILAND GAME LOG (COMPACT)");
+  lines.push("AI BATTLEGROUNDS GAME LOG (COMPACT)");
   lines.push(`Exported at: ${new Date().toISOString()}`);
   lines.push(`Current Turn: ${world.turn}`);
   lines.push("=".repeat(80));
