@@ -40,10 +40,6 @@ function formatPosition(pos: Position): string {
   return `(${pos.x}, ${pos.y})`;
 }
 
-function manhattanDistance(a: Position, b: Position): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
 // Chebyshev distance - diagonals count as 1 step
 function chebyshevDistance(a: Position, b: Position): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
@@ -51,10 +47,6 @@ function chebyshevDistance(a: Position, b: Position): number {
 
 function isAdjacent(a: Position, b: Position): boolean {
   return chebyshevDistance(a, b) <= 1;
-}
-
-function positionsEqual(a: Position, b: Position): boolean {
-  return a.x === b.x && a.y === b.y;
 }
 
 function generateOmniscientMapJson(world: World): string {
@@ -1250,116 +1242,6 @@ export async function getAgentDecision(
     situationDescription = situationDescription + historySection;
   }
 
-  // Build available actions list with crossed-out unavailable ones
-  const moveAction = hasMoved
-    ? "- [UNAVAILABLE] MOVE - YOU ALREADY MOVED THIS TURN. DO NOT USE MOVE."
-    : `- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates). You can move diagonally. You do not need to choose a tile adjacent to you: you can move up to ${character.movementRange} tiles.`;
-
-  const moveTowardAction = hasMoved
-    ? "- [UNAVAILABLE] MOVE_TOWARD - YOU ALREADY MOVED THIS TURN."
-    : `- MOVE_TOWARD: Navigate toward a distant destination. The engine handles pathfinding - you just specify where you want to go. Use this to reach frontier tiles or distant locations. You'll move up to ${character.movementRange} tiles per turn along the optimal path.`;
-
-  // Build PICKUP action - list adjacent items that can be picked up (8 directions)
-  const adjacentPickupItems: { name: string; x: number; y: number }[] = [];
-  for (const { item, position } of knowledge.visible.items) {
-    if (isAdjacent(character.position, position)) {
-      adjacentPickupItems.push({
-        name: item.name,
-        x: position.x,
-        y: position.y,
-      });
-    }
-  }
-  // Also include items from searched chests
-  for (const tile of knowledge.visible.tiles) {
-    if (
-      isAdjacent(character.position, tile.position) &&
-      tile.feature?.type === "chest" &&
-      tile.feature.searched
-    ) {
-      for (const content of tile.feature.contents) {
-        adjacentPickupItems.push({
-          name: content.name,
-          x: tile.position.x,
-          y: tile.position.y,
-        });
-      }
-    }
-  }
-  const pickupAction =
-    adjacentPickupItems.length > 0
-      ? `- PICKUP: Pick up adjacent item (including diagonals). Available: ${adjacentPickupItems
-          .map((i) => `"${i.name}" at (${i.x},${i.y})`)
-          .join(", ")}`
-      : "- [UNAVAILABLE] PICKUP - No items adjacent to pick up.";
-
-  // Build UNLOCK action - list adjacent locked doors if has matching key (8 directions)
-  const adjacentLockedDoors: {
-    x: number;
-    y: number;
-    name: string;
-    id: string;
-  }[] = [];
-  for (const tile of knowledge.visible.tiles) {
-    if (
-      isAdjacent(character.position, tile.position) &&
-      !positionsEqual(character.position, tile.position) &&
-      tile.feature?.type === "door" &&
-      tile.feature.locked &&
-      !tile.feature.open
-    ) {
-      adjacentLockedDoors.push({
-        x: tile.position.x,
-        y: tile.position.y,
-        name: tile.feature.name,
-        id: tile.feature.id,
-      });
-    }
-  }
-  const hasMatchingKey = (doorId: string) =>
-    knowledge.status.inventory.some(
-      (i) => i.type === "key" && i.unlocksFeatureId === doorId
-    );
-  let unlockAction: string;
-  const unlockabledDoors = adjacentLockedDoors.filter((d) =>
-    hasMatchingKey(d.id)
-  );
-  const hasAnyKey = knowledge.status.inventory.some((i) => i.type === "key");
-  if (unlockabledDoors.length > 0) {
-    unlockAction = `- UNLOCK: Unlock adjacent door. Requires target (door name). Available: ${unlockabledDoors
-      .map((d) => `"${d.name}" at (${d.x},${d.y})`)
-      .join(", ")}`;
-  } else if (adjacentLockedDoors.length > 0) {
-    unlockAction = `- [UNAVAILABLE] UNLOCK - Adjacent door at ${adjacentLockedDoors
-      .map((d) => `(${d.x},${d.y})`)
-      .join(", ")} but you need the matching key.`;
-  } else if (hasAnyKey) {
-    unlockAction =
-      "- [UNAVAILABLE] UNLOCK - You have a key but no locked doors are adjacent.";
-  } else {
-    unlockAction =
-      "- [UNAVAILABLE] UNLOCK - No adjacent locked doors and no key.";
-  }
-
-  // Build TALK action - list characters within talk distance (works through bars/doors)
-  const talkableCharacters = world.characters
-    .filter(
-      (c) =>
-        c.id !== character.id &&
-        c.alive &&
-        manhattanDistance(character.position, c.position) <= MAX_TALK_DISTANCE
-    )
-    .map((c) => ({
-      name: c.name,
-      dist: manhattanDistance(character.position, c.position),
-    }));
-  const talkAction =
-    talkableCharacters.length > 0
-      ? `- TALK: Speak to character within ${MAX_TALK_DISTANCE} tiles (works through bars). MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Don't repeat something you've already said in prior turns: if you have nothing new to say, say nothing. Available: ${talkableCharacters
-          .map((c) => `${c.name} (${c.dist} tiles)`)
-          .join(", ")}. Does NOT end turn (max 1 conversation per turn).`
-      : `- [UNAVAILABLE] TALK - No characters within ${MAX_TALK_DISTANCE} tiles.`;
-
   // Add continuity guidance if there's history
   const continuityNote =
     turnHistory.length > 0
@@ -1370,24 +1252,19 @@ export async function getAgentDecision(
 
 ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide your next action.${continuityNote}
 
-AVAILABLE ACTIONS:
-${moveAction}
-${moveTowardAction}
-- ATTACK: Attack character. Ends turn.
-${talkAction}
-- SEARCH: Search adjacent container.
-${pickupAction}
-- EQUIP: Equip weapon/clothing from inventory. Requires target (item name). You cannot equip and attack in the same turn.
-- UNEQUIP: Unequip weapon/clothing. Can signal good faith to others.
-- USE: Use a consumable item from inventory. Consumes the item.
-- PLACE: Place trap on an adjacent tile. Traps are VISIBLE to anyone who witnessed you placing it (anyone who could see that tile when you placed it). They are invisible to others who weren't there to witness the placement.
-${unlockAction}
-- DROP: Drop item from inventory.
-- CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
-- WAIT: End turn. No parameters.
+Things to know:
+
+* Talking: MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Don't repeat something you've already said in prior turns: if you have nothing new to say, say nothing.
+* If you choose to attack, it will end your turn.
+* If you want to search a container, you must first step to an adjacent tile and then search it. Don't step onto the container itself.
+* Unequiping an item can signal good faith to others, because you can't both equip and attack in the same turn.
+* 'Use'ing an item will consume it.
+* When placing a trap, place it on an adjacent tile, not your current tile. Traps are VISIBLE to anyone who witnessed you placing it (anyone who could see that tile when you placed it). They are invisible to others who weren't there to witness the placement.
+* Blood contracts: You can offer a Blood Contract to any nearby character. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
+* 'Wait' action will end your turn.
 
 Respond with JSON:
-- thought: REQUIRED on first action (what's on your mind). Optional on follow-up actions. Only use on follow up actions if acting on new information. Don't re-state something you already thought in the last turn. If you have nothing new to think, keep it VERY brief.
+- thought: REQUIRED on first action (what's on your mind). Don't re-state something you already thought in the last turn. If you have nothing new to think, keep it VERY brief.
 - action: The action type
 - x, y: Coordinates if needed (null otherwise)
 - target: Target name if needed (null otherwise)
