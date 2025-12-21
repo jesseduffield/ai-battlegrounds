@@ -107,7 +107,7 @@ function createCharacter(
   };
 }
 
-export function createTownMap(): World {
+export function createBearTrapsVsHuntersMap(): World {
   const width = 20;
   const height = 15;
 
@@ -437,7 +437,7 @@ Think carefully about which strategy is best to ensure your survival.`;
   return world;
 }
 
-export function createCageMap(): World {
+export function createPrisonersDilemmaMap(): World {
   const width = 20;
   const height = 15;
 

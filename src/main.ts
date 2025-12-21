@@ -1,7 +1,7 @@
 import {
-  createTownMap,
+  createBearTrapsVsHuntersMap,
   createBloodsportMap,
-  createCageMap,
+  createPrisonersDilemmaMap,
 } from "./world-builder";
 import {
   render,
@@ -76,22 +76,26 @@ let eventOrderCounter = 0;
 let allAgentDecisions: AgentDecisionLog[] = [];
 let initialCharacterCount = 0; // Track starting character count for game over logic
 
-type MapType = "town" | "bloodsport" | "cage" | "custom";
+type MapType =
+  | "bear-traps-vs-hunters"
+  | "bloodsport"
+  | "prisoners-dilemma"
+  | "custom";
 
 function createWorldFromSelection(mapType: MapType): World {
   switch (mapType) {
     case "bloodsport":
       return createBloodsportMap();
-    case "cage":
-      return createCageMap();
+    case "prisoners-dilemma":
+      return createPrisonersDilemmaMap();
     case "custom":
       const customWorld = getCustomWorld();
       if (customWorld) return customWorld;
       console.warn("No custom world found, falling back to town");
-      return createTownMap();
-    case "town":
+      return createBearTrapsVsHuntersMap();
+    case "bear-traps-vs-hunters":
     default:
-      return createTownMap();
+      return createBloodsportMap();
   }
 }
 
@@ -123,6 +127,7 @@ function loadSelectedMap(): MapType {
 }
 
 function restartGame(): void {
+  // Stop auto-play if running
   if (autoPlayInterval) {
     clearInterval(autoPlayInterval);
     autoPlayInterval = null;
@@ -130,6 +135,20 @@ function restartGame(): void {
     if (btn) btn.textContent = "Auto Play";
   }
 
+  // Reset player control
+  playerControlledCharacter = null;
+  const playerControlBtn = document.getElementById("player-control-btn");
+  if (playerControlBtn) {
+    playerControlBtn.textContent = "Take Control";
+    playerControlBtn.classList.remove("active");
+  }
+
+  // Reset speed mode
+  fastMode = false;
+  const speedBtn = document.getElementById("speed-toggle-btn");
+  if (speedBtn) speedBtn.textContent = "⚡ Fast Mode";
+
+  // Create new world
   world = createWorldFromSelection(getSelectedMap());
   initialCharacterCount = world.characters.length;
 
@@ -139,6 +158,7 @@ function restartGame(): void {
     initializeCharacterMemory(world, character);
   }
 
+  // Reset all game state
   currentCharacterIndex = 0;
   isProcessingTurn = false;
   awaitingPlayerAction = false;
@@ -150,10 +170,12 @@ function restartGame(): void {
   eventElements = new Map();
   allAgentDecisions = [];
 
+  // Reset canvas size
   const size = getCanvasSize(world);
   canvas.width = size.width;
   canvas.height = size.height;
 
+  // Clear event log
   const eventLog = document.getElementById("event-log");
   if (eventLog) {
     eventLog.innerHTML = `
@@ -164,6 +186,7 @@ function restartGame(): void {
     `;
   }
 
+  // Update UI
   saveSnapshot();
   renderWorld();
   updateUI();
