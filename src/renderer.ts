@@ -503,7 +503,8 @@ export function render(
   highlightedCharacter?: Character,
   reachableTiles?: Position[],
   visibleTiles?: Position[],
-  currentCharacterId?: string
+  currentCharacterId?: string,
+  frontierTiles?: Position[]
 ): void {
   // Disable image smoothing for crisp pixel art
   ctx.imageSmoothingEnabled = false;
@@ -550,6 +551,24 @@ export function render(
       const py = pos.y * TILE_SIZE;
       ctx.fillStyle = COLORS.reachable;
       ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+    }
+  }
+
+  // Draw frontier tiles (unexplored adjacent tiles) with a distinct border
+  if (frontierTiles) {
+    for (const pos of frontierTiles) {
+      const px = pos.x * TILE_SIZE;
+      const py = pos.y * TILE_SIZE;
+      // Draw a magenta/pink border to indicate frontier
+      ctx.strokeStyle = "#ff00ff";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(px + 2, py + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+      // Draw a small "?" in the center
+      ctx.fillStyle = "#ff00ff";
+      ctx.font = "bold 12px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("?", px + TILE_SIZE / 2, py + TILE_SIZE / 2);
     }
   }
 

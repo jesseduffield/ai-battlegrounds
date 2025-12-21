@@ -297,6 +297,56 @@ function serializeCharacter(char: Character): Record<string, unknown> {
   return data;
 }
 
+export function getUnexploredFrontierTiles(
+  world: World,
+  character: Character
+): Array<{ x: number; y: number }> {
+  const unexploredFrontier: Array<{ x: number; y: number }> = [];
+  const exploredKeys = new Set(character.mapMemory.keys());
+  const frontierChecked = new Set<string>();
+
+  for (const [key, memory] of character.mapMemory.entries()) {
+    if (memory.type === "wall") continue;
+
+    const [x, y] = key.split(",").map(Number);
+
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+
+        const adjX = x + dx;
+        const adjY = y + dy;
+        const adjKey = `${adjX},${adjY}`;
+
+        if (exploredKeys.has(adjKey) || frontierChecked.has(adjKey)) continue;
+        frontierChecked.add(adjKey);
+
+        if (adjX < 0 || adjX >= world.width || adjY < 0 || adjY >= world.height)
+          continue;
+
+        const adjTile = world.tiles[adjY]?.[adjX];
+        if (adjTile && adjTile.type !== "wall" && adjTile.type !== "water") {
+          unexploredFrontier.push({ x: adjX, y: adjY });
+        }
+      }
+    }
+  }
+
+  unexploredFrontier.sort((a, b) => {
+    const distA = Math.max(
+      Math.abs(a.x - character.position.x),
+      Math.abs(a.y - character.position.y)
+    );
+    const distB = Math.max(
+      Math.abs(b.x - character.position.x),
+      Math.abs(b.y - character.position.y)
+    );
+    return distA - distB;
+  });
+
+  return unexploredFrontier;
+}
+
 function generateMapJson(world: World, character: Character): string {
   // Build a flat list of explored tiles with full details
   const tiles: Array<Record<string, unknown>> = [];
@@ -309,6 +359,9 @@ function generateMapJson(world: World, character: Character): string {
       visibleCharacters.set(key, char);
     }
   }
+
+  // Get unexplored frontier tiles using the shared function
+  const unexploredFrontier = getUnexploredFrontierTiles(world, character);
 
   for (const [key, memory] of character.mapMemory.entries()) {
     const [x, y] = key.split(",").map(Number);
@@ -386,6 +439,7 @@ function generateMapJson(world: World, character: Character): string {
     yourPosition: { x: character.position.x, y: character.position.y },
     worldSize: { width: world.width, height: world.height },
     exploredTiles: tiles,
+    unexploredAdjacentTiles: unexploredFrontier,
   };
 
   return JSON.stringify(mapData, null, 2);
@@ -718,6 +772,9 @@ function formatKnowledge(
   }
 
   lines.push(`\n=== YOUR MAP ===`);
+  lines.push(
+    `The map shows all tiles you've explored. 'unexploredAdjacentTiles' lists coordinates of tiles adjacent to your explored area that you haven't visited yet - move toward these to explore new areas.`
+  );
   lines.push(`\n${generateMapJson(world, character)}`);
 
   lines.push(`\n=== LEGAL ACTIONS ===`);

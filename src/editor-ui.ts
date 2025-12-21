@@ -1448,16 +1448,78 @@ function setupActionButtons(): void {
   });
 
   importBtn?.addEventListener("click", () => {
-    const json = prompt("Paste map JSON:");
-    if (json) {
-      try {
-        editorState = importWorldFromJson(json);
-        updateEditorCanvas();
-        saveState();
-      } catch (e) {
-        alert("Invalid JSON");
-      }
-    }
+    // Create a modal dialog with a textarea
+    const modal = document.createElement("div");
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8); display: flex; align-items: center;
+      justify-content: center; z-index: 10000;
+    `;
+
+    const dialog = document.createElement("div");
+    dialog.style.cssText = `
+      background: #1a1a25; padding: 20px; border-radius: 8px;
+      border: 1px solid #2a2a3a; max-width: 600px; width: 90%;
+    `;
+
+    dialog.innerHTML = `
+      <h3 style="margin: 0 0 10px 0; color: #e8e8f0;">Import Map JSON</h3>
+      <textarea id="import-json-textarea" style="
+        width: 100%; height: 300px; background: #12121a; color: #e8e8f0;
+        border: 1px solid #2a2a3a; border-radius: 4px; padding: 10px;
+        font-family: monospace; font-size: 12px; resize: vertical;
+      " placeholder="Paste your map JSON here..."></textarea>
+      <div style="margin-top: 10px; display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="import-cancel-btn" style="
+          padding: 8px 16px; background: #2a2a3a; color: #e8e8f0;
+          border: none; border-radius: 4px; cursor: pointer;
+        ">Cancel</button>
+        <button id="import-confirm-btn" style="
+          padding: 8px 16px; background: #4488ff; color: white;
+          border: none; border-radius: 4px; cursor: pointer;
+        ">Import</button>
+      </div>
+    `;
+
+    modal.appendChild(dialog);
+    document.body.appendChild(modal);
+
+    const textarea = document.getElementById(
+      "import-json-textarea"
+    ) as HTMLTextAreaElement;
+    textarea?.focus();
+
+    document
+      .getElementById("import-cancel-btn")
+      ?.addEventListener("click", () => {
+        modal.remove();
+      });
+
+    document
+      .getElementById("import-confirm-btn")
+      ?.addEventListener("click", () => {
+        const json = textarea?.value;
+        if (json) {
+          try {
+            editorState = importWorldFromJson(json);
+            updateEditorCanvas();
+            saveState();
+            modal.remove();
+          } catch (e) {
+            alert("Invalid JSON: " + (e as Error).message);
+          }
+        }
+      });
+
+    // Close on escape key
+    modal.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") modal.remove();
+    });
+
+    // Close on backdrop click
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.remove();
+    });
   });
 
   clearBtn?.addEventListener("click", () => {

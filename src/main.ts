@@ -14,6 +14,7 @@ import {
   setThinkingCharacter,
   setSpeakingCharacter,
 } from "./renderer";
+import { getUnexploredFrontierTiles } from "./agent";
 import {
   render3D,
   createCamera,
@@ -28,6 +29,7 @@ import {
   MAX_TALK_DISTANCE,
   getWitnessIds,
   processEffects,
+  initializeCharacterMemory,
   tickEffectDurations,
   describeEffect,
   applyEffectAction,
@@ -141,6 +143,12 @@ function restartGame(): void {
 
   world = createWorldFromSelection(getSelectedMap());
   initialCharacterCount = world.characters.length;
+
+  // Initialize each character's map memory with their visible tiles
+  for (const character of world.characters) {
+    character.mapMemory = new Map();
+    initializeCharacterMemory(world, character);
+  }
 
   currentCharacterIndex = 0;
   isProcessingTurn = false;
@@ -703,7 +711,19 @@ function renderWorld(): void {
       current && !viewingSnapshot
         ? getVisibleTiles(displayWorld, current).tiles.map((t) => t.position)
         : undefined;
-    render(ctx, displayWorld, current, reachable, visible, current?.id);
+    const frontier =
+      current && !viewingSnapshot
+        ? getUnexploredFrontierTiles(displayWorld, current)
+        : undefined;
+    render(
+      ctx,
+      displayWorld,
+      current,
+      reachable,
+      visible,
+      current?.id,
+      frontier
+    );
   }
 }
 

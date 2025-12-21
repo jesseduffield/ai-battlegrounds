@@ -1259,3 +1259,165 @@ describe("Legal Actions - Chest Contents", () => {
     expect(searchActions.length).toBe(1);
   });
 });
+
+describe("Unexplored Frontier Tiles", () => {
+  it("should return adjacent unexplored walkable tiles", async () => {
+    const { getUnexploredFrontierTiles } = await import("./agent");
+
+    const world = createTestWorld(5, 5);
+    const character = createTestCharacter("Explorer", 2, 2);
+    world.characters.push(character);
+
+    // Initialize character's map memory with just their current position
+    character.mapMemory = new Map();
+    character.mapMemory.set("2,2", { type: "ground", lastSeenTurn: 0 });
+
+    const frontier = getUnexploredFrontierTiles(world, character);
+
+    // Should include all 8 adjacent tiles (all are ground and unexplored)
+    expect(frontier.length).toBe(8);
+
+    // All frontier tiles should be adjacent to (2,2)
+    for (const tile of frontier) {
+      const dx = Math.abs(tile.x - 2);
+      const dy = Math.abs(tile.y - 2);
+      expect(dx <= 1 && dy <= 1).toBe(true);
+      expect(dx === 0 && dy === 0).toBe(false); // Not the center tile
+    }
+  });
+
+  it("should NOT include wall tiles in frontier", async () => {
+    const { getUnexploredFrontierTiles } = await import("./agent");
+
+    const world = createTestWorld(5, 5);
+    const character = createTestCharacter("Explorer", 2, 2);
+    world.characters.push(character);
+
+    // Make tile (3, 2) a wall
+    world.tiles[2][3].type = "wall";
+
+    // Initialize character's map memory with just their current position
+    character.mapMemory = new Map();
+    character.mapMemory.set("2,2", { type: "ground", lastSeenTurn: 0 });
+
+    const frontier = getUnexploredFrontierTiles(world, character);
+
+    // Should NOT include the wall tile
+    const hasWallTile = frontier.some((t) => t.x === 3 && t.y === 2);
+    expect(hasWallTile).toBe(false);
+
+    // Should have 7 tiles (8 - 1 wall)
+    expect(frontier.length).toBe(7);
+  });
+
+  it("should NOT include tiles adjacent to walls in memory", async () => {
+    const { getUnexploredFrontierTiles } = await import("./agent");
+
+    const world = createTestWorld(5, 5);
+    const character = createTestCharacter("Explorer", 2, 2);
+    world.characters.push(character);
+
+    // Initialize character's map memory with current position AND a wall
+    character.mapMemory = new Map();
+    character.mapMemory.set("2,2", { type: "ground", lastSeenTurn: 0 });
+    character.mapMemory.set("3,2", { type: "wall", lastSeenTurn: 0 }); // Wall to the east
+
+    const frontier = getUnexploredFrontierTiles(world, character);
+
+    // Should NOT expand from the wall tile, so tiles only adjacent to the wall
+    // should not be included UNLESS they're also adjacent to (2,2)
+    // The wall at (3,2) would have (4,2) adjacent to it, but (4,2) is not adjacent to (2,2)
+    const hasTile4_2 = frontier.some((t) => t.x === 4 && t.y === 2);
+    expect(hasTile4_2).toBe(false);
+  });
+
+  it("should NOT include already explored tiles", async () => {
+    const { getUnexploredFrontierTiles } = await import("./agent");
+
+    const world = createTestWorld(5, 5);
+    const character = createTestCharacter("Explorer", 2, 2);
+    world.characters.push(character);
+
+    // Initialize character's map memory with a 3x3 explored area
+    character.mapMemory = new Map();
+    for (let y = 1; y <= 3; y++) {
+      for (let x = 1; x <= 3; x++) {
+        character.mapMemory.set(`${x},${y}`, {
+          type: "ground",
+          lastSeenTurn: 0,
+        });
+      }
+    }
+
+    const frontier = getUnexploredFrontierTiles(world, character);
+
+    // Should not include any tiles that are already in mapMemory
+    for (const tile of frontier) {
+      const key = `${tile.x},${tile.y}`;
+      expect(character.mapMemory.has(key)).toBe(false);
+    }
+
+    // Frontier should be the ring around the 3x3 area
+    // That's tiles at x=0 or x=4, y in [1,3], and y=0 or y=4, x in [1,3]
+    // Plus corners (0,0), (4,0), (0,4), (4,4)
+    // Total: 16 tiles around a 3x3 center, but we're in 5x5 world
+    // Actually: x=0,y=0-4 (5) + x=4,y=0-4 (5) + y=0,x=1-3 (3) + y=4,x=1-3 (3) = 16
+    expect(frontier.length).toBe(16);
+  });
+
+  it("should include frontier tiles regardless of distance from character", async () => {
+    const { getUnexploredFrontierTiles } = await import("./agent");
+
+    const world = createTestWorld(30, 30);
+    const character = createTestCharacter("Explorer", 15, 15);
+    world.characters.push(character);
+
+    // Initialize character's map memory with position far from current
+    character.mapMemory = new Map();
+    character.mapMemory.set("15,15", { type: "ground", lastSeenTurn: 0 }); // Current position
+    character.mapMemory.set("1,1", { type: "ground", lastSeenTurn: 0 }); // Far away explored tile
+
+    const frontier = getUnexploredFrontierTiles(world, character);
+
+    // Tiles adjacent to (1,1) SHOULD be in frontier even though far away
+    const hasTileNear1_1 = frontier.some(
+      (t) => Math.abs(t.x - 1) <= 1 && Math.abs(t.y - 1) <= 1
+    );
+    expect(hasTileNear1_1).toBe(true);
+
+    // Tiles adjacent to (15,15) should also be in frontier
+    const hasTileNear15_15 = frontier.some(
+      (t) => Math.abs(t.x - 15) <= 1 && Math.abs(t.y - 15) <= 1
+    );
+    expect(hasTileNear15_15).toBe(true);
+  });
+
+  it("should be sorted by distance from character (closest first)", async () => {
+    const { getUnexploredFrontierTiles } = await import("./agent");
+
+    const world = createTestWorld(10, 10);
+    const character = createTestCharacter("Explorer", 5, 5);
+    world.characters.push(character);
+
+    // Explore a path going east
+    character.mapMemory = new Map();
+    character.mapMemory.set("5,5", { type: "ground", lastSeenTurn: 0 });
+    character.mapMemory.set("6,5", { type: "ground", lastSeenTurn: 0 });
+    character.mapMemory.set("7,5", { type: "ground", lastSeenTurn: 0 });
+
+    const frontier = getUnexploredFrontierTiles(world, character);
+
+    // Verify sorted by distance
+    for (let i = 1; i < frontier.length; i++) {
+      const prevDist = Math.max(
+        Math.abs(frontier[i - 1].x - 5),
+        Math.abs(frontier[i - 1].y - 5)
+      );
+      const currDist = Math.max(
+        Math.abs(frontier[i].x - 5),
+        Math.abs(frontier[i].y - 5)
+      );
+      expect(currDist).toBeGreaterThanOrEqual(prevDist);
+    }
+  });
+});
