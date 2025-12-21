@@ -160,6 +160,11 @@ export type MoveAction = {
   targetPosition: Position;
 };
 
+export type MoveTowardAction = {
+  type: "move_toward";
+  targetPosition: Position;
+};
+
 export type LookAroundAction = {
   type: "look_around";
 };
@@ -238,6 +243,7 @@ export type UseAction = {
 
 export type Action =
   | MoveAction
+  | MoveTowardAction
   | LookAroundAction
   | SearchContainerAction
   | PickUpAction

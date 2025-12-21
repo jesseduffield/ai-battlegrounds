@@ -921,6 +921,128 @@ export function executeAction(
       };
     }
 
+    case "move_toward": {
+      const movementBlockingEffect = character.effects.find(
+        (e) => e.preventsMovement
+      );
+      if (movementBlockingEffect) {
+        return {
+          success: false,
+          message: `${character.name} cannot move due to ${movementBlockingEffect.name}! (${movementBlockingEffect.duration} turns remaining)`,
+          events,
+        };
+      }
+
+      // Find path to destination (allow long paths)
+      const fullPath = findPath(
+        world,
+        character.position,
+        action.targetPosition,
+        1000 // Allow very long paths
+      );
+      if (!fullPath || fullPath.length === 0) {
+        return {
+          success: false,
+          message: `Cannot find path to (${action.targetPosition.x}, ${action.targetPosition.y})`,
+          events,
+        };
+      }
+
+      // Take only as many steps as movementRange allows
+      const stepsToTake = Math.min(fullPath.length, character.movementRange);
+      const pathThisTurn = fullPath.slice(0, stepsToTake);
+      const targetThisTurn = pathThisTurn[pathThisTurn.length - 1];
+
+      // Check if destination is occupied by another character
+      const occupant = world.characters.find(
+        (c) =>
+          c.alive &&
+          c.id !== character.id &&
+          positionsEqual(c.position, targetThisTurn)
+      );
+      if (occupant) {
+        // Stop one tile before the occupant
+        if (pathThisTurn.length > 1) {
+          pathThisTurn.pop();
+        } else {
+          return {
+            success: false,
+            message: `Path blocked by ${occupant.name}`,
+            events,
+          };
+        }
+      }
+
+      const startPos = { ...character.position };
+      let finalPosition = pathThisTurn[pathThisTurn.length - 1];
+      let trapTriggered = false;
+      let actualPath = [startPos, ...pathThisTurn];
+
+      // Check each tile along the path for enemy traps
+      for (let i = 0; i < pathThisTurn.length; i++) {
+        const stepPos = pathThisTurn[i];
+        const stepTile = world.tiles[stepPos.y][stepPos.x];
+
+        if (stepTile.feature?.type === "trap" && !stepTile.feature.triggered) {
+          const trap = stepTile.feature;
+          const effect = trap.appliesEffect;
+
+          finalPosition = stepPos;
+          actualPath = [startPos, ...pathThisTurn.slice(0, i + 1)];
+          trapTriggered = true;
+
+          applyEffect(character, { ...effect, sourceId: trap.ownerId });
+
+          const ownTrap = trap.ownerId === character.id;
+          events.push({
+            turn: world.turn,
+            actorId: character.id,
+            position: stepPos,
+            description: `${character.name} stepped on ${
+              ownTrap ? "their own" : "a"
+            } ${trap.name}! ${effect.name} for ${effect.duration} turns!`,
+            sound: "trap",
+            witnessIds: getWitnessIds(world, [stepPos]),
+          });
+
+          trap.triggered = true;
+          stepTile.feature = undefined;
+          break;
+        }
+      }
+
+      character.position = finalPosition;
+
+      const remainingDistance = fullPath.length - stepsToTake;
+      const arrivedAtDestination = positionsEqual(finalPosition, action.targetPosition);
+
+      events.push({
+        turn: world.turn,
+        actorId: character.id,
+        position: finalPosition,
+        description: trapTriggered
+          ? `${character.name} was caught in a trap at (${finalPosition.x}, ${finalPosition.y})!`
+          : arrivedAtDestination
+          ? `${character.name} arrived at destination (${finalPosition.x}, ${finalPosition.y})`
+          : `${character.name} moved toward (${action.targetPosition.x}, ${action.targetPosition.y}), now at (${finalPosition.x}, ${finalPosition.y}) - ${remainingDistance} tiles remaining`,
+        witnessIds: getWitnessIds(world, [finalPosition]),
+      });
+
+      return {
+        success: true,
+        message: trapTriggered
+          ? "Trapped!"
+          : arrivedAtDestination
+          ? "Arrived at destination"
+          : `Moving toward destination (${remainingDistance} tiles remaining)`,
+        events,
+        animationData: {
+          type: "move",
+          path: actualPath,
+        },
+      };
+    }
+
     case "look_around": {
       const visible = getVisibleTiles(world, character);
 

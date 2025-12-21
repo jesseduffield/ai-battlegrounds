@@ -15,6 +15,7 @@ import {
   getReachableTiles,
   MAX_TALK_DISTANCE,
   describeEffect,
+  findPath,
 } from "./engine";
 import OpenAI from "openai";
 
@@ -54,87 +55,6 @@ function isAdjacent(a: Position, b: Position): boolean {
 
 function positionsEqual(a: Position, b: Position): boolean {
   return a.x === b.x && a.y === b.y;
-}
-
-function findTargetPosition(
-  targetName: string,
-  knowledge: CharacterKnowledge,
-  character: Character
-): Position | null {
-  const nameLower = targetName.toLowerCase();
-
-  // Check visible characters
-  for (const { character: c, position } of knowledge.visible.characters) {
-    if (c.name.toLowerCase().includes(nameLower)) {
-      return position;
-    }
-  }
-
-  // Check visible items
-  for (const { item, position } of knowledge.visible.items) {
-    if (item.name.toLowerCase().includes(nameLower)) {
-      return position;
-    }
-  }
-
-  // Check visible chest contents
-  for (const { position } of knowledge.visible.tiles) {
-    const tile = knowledge.visible.tiles.find(
-      (t) => t.position.x === position.x && t.position.y === position.y
-    );
-    if (tile?.feature?.type === "chest" && tile.feature.searched) {
-      for (const content of tile.feature.contents) {
-        if (content.name.toLowerCase().includes(nameLower)) {
-          return position;
-        }
-      }
-    }
-  }
-
-  // Check map memory for remembered locations
-  for (const [key, memory] of character.mapMemory) {
-    const [x, y] = key.split(",").map(Number);
-    if (memory.items) {
-      for (const itemName of memory.items) {
-        if (itemName.toLowerCase().includes(nameLower)) {
-          return { x, y };
-        }
-      }
-    }
-    if (memory.characterName?.toLowerCase().includes(nameLower)) {
-      return { x, y };
-    }
-  }
-
-  return null;
-}
-
-function findBestTileToward(
-  targetPos: Position,
-  reachableTiles: Position[],
-  currentPos: Position
-): Position | null {
-  if (reachableTiles.length === 0) return null;
-
-  // Sort by distance to target (closest first)
-  const sorted = [...reachableTiles].sort((a, b) => {
-    const distA = manhattanDistance(a, targetPos);
-    const distB = manhattanDistance(b, targetPos);
-    return distA - distB;
-  });
-
-  // Return the reachable tile closest to the target
-  // But only if it's closer than our current position
-  const bestTile = sorted[0];
-  const currentDist = manhattanDistance(currentPos, targetPos);
-  const bestDist = manhattanDistance(bestTile, targetPos);
-
-  if (bestDist < currentDist) {
-    return bestTile;
-  }
-
-  // If we can't get closer, return the tile anyway (might need to go around)
-  return bestTile;
 }
 
 function generateOmniscientMapJson(world: World): string {
@@ -300,8 +220,12 @@ function serializeCharacter(char: Character): Record<string, unknown> {
 export function getUnexploredFrontierTiles(
   world: World,
   character: Character
-): Array<{ x: number; y: number }> {
-  const unexploredFrontier: Array<{ x: number; y: number }> = [];
+): Array<{ x: number; y: number; moveToward?: { x: number; y: number } }> {
+  const unexploredFrontier: Array<{
+    x: number;
+    y: number;
+    moveToward?: { x: number; y: number };
+  }> = [];
   const exploredKeys = new Set(character.mapMemory.keys());
   const frontierChecked = new Set<string>();
 
@@ -343,6 +267,46 @@ export function getUnexploredFrontierTiles(
     );
     return distA - distB;
   });
+
+  // For each frontier tile, find the path and determine which direction to move
+  for (const frontier of unexploredFrontier) {
+    // Find an explored tile adjacent to this frontier that we can path to
+    let bestPath: Position[] | null = null;
+    let targetPos: Position | null = null;
+
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const checkX = frontier.x + dx;
+        const checkY = frontier.y + dy;
+        const checkKey = `${checkX},${checkY}`;
+
+        // This tile must be explored and walkable
+        const memory = character.mapMemory.get(checkKey);
+        if (memory && memory.type !== "wall") {
+          // Find path from character to this explored tile
+          const path = findPath(
+            world,
+            character.position,
+            { x: checkX, y: checkY },
+            100 // Allow long paths
+          );
+          if (path && (bestPath === null || path.length < bestPath.length)) {
+            bestPath = path;
+            targetPos = { x: checkX, y: checkY };
+          }
+        }
+      }
+    }
+
+    // If we found a path, the first step is where to move toward
+    if (bestPath && bestPath.length > 0) {
+      frontier.moveToward = { x: bestPath[0].x, y: bestPath[0].y };
+    } else if (targetPos) {
+      // We're already adjacent to an explored tile next to the frontier
+      frontier.moveToward = targetPos;
+    }
+  }
 
   return unexploredFrontier;
 }
@@ -471,6 +435,21 @@ export function getLegalActions(
         display: { action: "MOVE", x: tile.x, y: tile.y },
         action: { type: "move", targetPosition: tile },
       });
+    }
+
+    // MOVE_TOWARD actions for frontier tiles (distant unexplored areas)
+    const frontierTiles = getUnexploredFrontierTiles(world, character);
+    for (const frontier of frontierTiles) {
+      // Only add if not already reachable in one turn
+      const isReachable = reachable.some(
+        (t) => t.x === frontier.x && t.y === frontier.y
+      );
+      if (!isReachable) {
+        legalActions.push({
+          display: { action: "MOVE_TOWARD", x: frontier.x, y: frontier.y },
+          action: { type: "move_toward", targetPosition: frontier },
+        });
+      }
     }
   }
 
@@ -773,7 +752,7 @@ function formatKnowledge(
 
   lines.push(`\n=== YOUR MAP ===`);
   lines.push(
-    `The map shows all tiles you've explored. 'unexploredAdjacentTiles' lists coordinates of tiles adjacent to your explored area that you haven't visited yet - move toward these to explore new areas.`
+    `The map shows all tiles you've explored. 'unexploredAdjacentTiles' lists unexplored tiles at the edge of your explored area. Each includes 'moveToward' - the first step on the path to reach it. IMPORTANT: In mazes, the path to a frontier may require going in a different direction first (e.g., go east to eventually reach a western frontier).`
   );
   lines.push(`\n${generateMapJson(world, character)}`);
 
@@ -805,7 +784,7 @@ const actionResponseSchema = {
         type: "string",
         enum: [
           "MOVE",
-          "MOVE_TO",
+          "MOVE_TOWARD",
           "ATTACK",
           "TALK",
           "SEARCH",
@@ -942,37 +921,30 @@ function parseJsonAction(
       return { action: legalMove.action, error: null };
     }
 
-    case "MOVE_TO": {
-      if (!jsonResponse.target) {
-        return { action: null, error: "MOVE_TO requires a target" };
-      }
-      const targetPos = findTargetPosition(
-        jsonResponse.target,
-        knowledge,
-        character
-      );
-      if (!targetPos) {
+    case "MOVE_TOWARD": {
+      if (jsonResponse.x == null || jsonResponse.y == null) {
         return {
           action: null,
-          error: `MOVE_TO "${jsonResponse.target}" failed: target not found`,
+          error: "MOVE_TOWARD requires x and y coordinates",
         };
       }
-      const reachableTiles = getReachableTiles(world, character);
-      const bestTile = findBestTileToward(
-        targetPos,
-        reachableTiles,
-        character.position
+      const targetX = jsonResponse.x;
+      const targetY = jsonResponse.y;
+
+      // Find matching legal MOVE_TOWARD action
+      const legalMoveToward = legalActions.find(
+        (la) =>
+          la.action.type === "move_toward" &&
+          la.display.x === targetX &&
+          la.display.y === targetY
       );
-      if (!bestTile) {
+      if (!legalMoveToward) {
         return {
           action: null,
-          error: `MOVE_TO "${jsonResponse.target}" failed: no reachable tiles`,
+          error: `MOVE_TOWARD (${targetX}, ${targetY}) is not a valid destination`,
         };
       }
-      return {
-        action: { type: "move", targetPosition: bestTile },
-        error: null,
-      };
+      return { action: legalMoveToward.action, error: null };
     }
 
     case "ATTACK": {
@@ -1283,6 +1255,10 @@ export async function getAgentDecision(
     ? "- [UNAVAILABLE] MOVE - YOU ALREADY MOVED THIS TURN. DO NOT USE MOVE."
     : `- MOVE: Move to a tile. Use x,y coordinates OR target name (auto-navigates). You can move diagonally. You do not need to choose a tile adjacent to you: you can move up to ${character.movementRange} tiles.`;
 
+  const moveTowardAction = hasMoved
+    ? "- [UNAVAILABLE] MOVE_TOWARD - YOU ALREADY MOVED THIS TURN."
+    : `- MOVE_TOWARD: Navigate toward a distant destination. The engine handles pathfinding - you just specify where you want to go. Use this to reach frontier tiles or distant locations. You'll move up to ${character.movementRange} tiles per turn along the optimal path.`;
+
   // Build PICKUP action - list adjacent items that can be picked up (8 directions)
   const adjacentPickupItems: { name: string; x: number; y: number }[] = [];
   for (const { item, position } of knowledge.visible.items) {
@@ -1396,6 +1372,7 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 
 AVAILABLE ACTIONS:
 ${moveAction}
+${moveTowardAction}
 - ATTACK: Attack character. Ends turn.
 ${talkAction}
 - SEARCH: Search adjacent container.
@@ -1425,6 +1402,7 @@ ${
 {"thought": null, "action": "SIGN", "x": null, "y": null, "target": null, "message": "Deal.", "terms": null, "expiry": null}
 {"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null, "terms": null, "expiry": null}`
     : `{"thought": "There he is.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
+{"thought": "Need to reach that unexplored area.", "action": "MOVE_TOWARD", "x": 5, "y": 3, "target": null, "message": null}
 {"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
 {"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
 {"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": 5}`
