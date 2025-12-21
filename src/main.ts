@@ -117,13 +117,21 @@ function saveSelectedMap(mapType: MapType): void {
 function loadSelectedMap(): MapType {
   try {
     const saved = localStorage.getItem(MAP_SELECTION_STORAGE_KEY);
-    if (saved && ["town", "bloodsport", "cage", "custom"].includes(saved)) {
+    if (
+      saved &&
+      [
+        "bear-traps-vs-hunters",
+        "bloodsport",
+        "prisoners-dilemma",
+        "custom",
+      ].includes(saved)
+    ) {
       return saved as MapType;
     }
   } catch (e) {
     console.warn("Failed to load map selection from localStorage", e);
   }
-  return "town";
+  return "bear-traps-vs-hunters";
 }
 
 function restartGame(): void {
@@ -2747,11 +2755,7 @@ function showApiKeyPrompt(): void {
       />
       <div style="display: flex; gap: 0.5rem;">
         <button id="save-key-btn" style="flex: 1;" class="primary">Save & Start</button>
-        <button id="skip-key-btn" style="flex: 1;">Skip (Demo Mode)</button>
       </div>
-      <p style="margin-top: 1rem; color: #666; font-size: 0.75rem;">
-        Demo mode will use random actions instead of AI.
-      </p>
     </div>
   `;
 
@@ -2759,7 +2763,6 @@ function showApiKeyPrompt(): void {
 
   const input = document.getElementById("api-key-input") as HTMLInputElement;
   const saveBtn = document.getElementById("save-key-btn");
-  const skipBtn = document.getElementById("skip-key-btn");
 
   saveBtn?.addEventListener("click", () => {
     const apiKey = input.value.trim();
@@ -2768,10 +2771,6 @@ function showApiKeyPrompt(): void {
       initializeAgent(apiKey);
       initializeSpeech(apiKey);
     }
-    modal.remove();
-  });
-
-  skipBtn?.addEventListener("click", () => {
     modal.remove();
   });
 }
@@ -2867,11 +2866,11 @@ function init(): void {
   const mapSelect = document.getElementById("map-select") as HTMLSelectElement;
   let savedMap = loadSelectedMap();
 
-  // If custom map is selected but doesn't exist, fall back to town
+  // If custom map is selected but doesn't exist, fall back to default
   if (savedMap === "custom") {
     const customWorld = getCustomWorld();
     if (!customWorld) {
-      savedMap = "town";
+      savedMap = "bear-traps-vs-hunters";
     }
   }
 
