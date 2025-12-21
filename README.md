@@ -10,12 +10,13 @@ If you're looking for a new way to test the agentic abilities of LLM's, or if yo
 
 ## Features
 
-- **Grid-based world** with buildings, paths, and items
 - **AI-driven characters** Powered by OpenAI's models (BYO API key)
-- **Imperfect information** - characters only know what they've seen or heard
-- **Blood contracts** - agents can sign contracts with eachother to enforce agreements, and if either party violates the contract, they will be struck dead by the Great Judge.
+- **Imperfect information** - Characters only know what they've seen or heard
+- **Blood contracts** - Agents can sign contracts with eachother to enforce agreements, and if either party violates the contract, they will be struck dead by the Great Judge.
 - **Level editor** - Come up with your own contrived situations to see how the AI's behave.
 - **Enter the game yourself** - Play as a character and see if you can manipulate the AI's to achieve your goals.
+
+Guys, the sky is the limit with this stuff. You really can create some crazy shit in this system.
 
 ## Screenshots
 
