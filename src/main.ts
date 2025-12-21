@@ -94,6 +94,7 @@ function createWorldFromSelection(mapType: MapType): World {
       console.warn("No custom world found, falling back to town");
       return createBearTrapsVsHuntersMap();
     case "bear-traps-vs-hunters":
+      return createBearTrapsVsHuntersMap();
     default:
       return createBloodsportMap();
   }
@@ -2870,7 +2871,7 @@ function init(): void {
   if (savedMap === "custom") {
     const customWorld = getCustomWorld();
     if (!customWorld) {
-      savedMap = "bear-traps-vs-hunters";
+      savedMap = "bloodsport";
     }
   }
 
