@@ -60,6 +60,27 @@ export function applyEffectAction(
       if (character.hp <= 0) {
         character.hp = 0;
         character.alive = false;
+
+        // Drop all items from the dead character onto the ground
+        const tile = world.tiles[character.position.y][character.position.x];
+        for (const item of character.inventory) {
+          tile.items.push(item);
+        }
+        if (character.inventory.length > 0) {
+          const itemNames = character.inventory.map((i) => i.name).join(", ");
+          events.push({
+            turn: world.turn,
+            sound: "drop",
+            actorId: character.id,
+            position: character.position,
+            description: `${character.name}'s items fell to the ground: ${itemNames}`,
+            witnessIds: getWitnessIds(world, [character.position]),
+          });
+        }
+        character.inventory = [];
+        character.equippedWeapon = undefined;
+        character.equippedClothing = undefined;
+
         events.push({
           turn: world.turn,
           actorId: character.id,
@@ -1576,6 +1597,7 @@ export function executeAction(
         id: trapItem.id,
         name: trapItem.name,
         ownerId: character.id,
+        witnessIds: getWitnessIds(world, [action.targetPosition]),
         appliesEffect: trapItem.trapEffect ?? defaultTrapEffect,
         triggered: false,
       };
@@ -1587,7 +1609,7 @@ export function executeAction(
         itemId: trapItem.id,
         position: { ...action.targetPosition },
         description: `${character.name} placed a ${trapItem.name} at (${action.targetPosition.x}, ${action.targetPosition.y})`,
-        witnessIds: [character.id],
+        witnessIds: getWitnessIds(world, [action.targetPosition]),
       });
 
       return {

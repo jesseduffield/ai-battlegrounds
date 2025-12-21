@@ -87,6 +87,7 @@ export function createItem(data: {
   damage?: number;
   armor?: number;
   useEffect?: EffectAction;
+  trapEffect?: Effect;
 }): Item {
   return {
     id: createId(),
@@ -95,6 +96,7 @@ export function createItem(data: {
     damage: data.damage,
     armor: data.armor,
     useEffect: data.useEffect,
+    trapEffect: data.trapEffect,
   };
 }
 
@@ -164,6 +166,7 @@ export function createChestFeature(data: {
 export function createTrapFeature(data: {
   name: string;
   ownerId: string;
+  witnessIds: string[];
   effect: Effect;
 }): Feature {
   return {
@@ -171,6 +174,7 @@ export function createTrapFeature(data: {
     id: createId(),
     name: data.name,
     ownerId: data.ownerId,
+    witnessIds: data.witnessIds,
     appliesEffect: data.effect,
     triggered: false,
   };

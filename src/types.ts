@@ -12,6 +12,7 @@ export type TrapFeature = {
   id: string;
   name: string;
   ownerId: string;
+  witnessIds: string[];
   appliesEffect: Effect;
   triggered: boolean;
 };

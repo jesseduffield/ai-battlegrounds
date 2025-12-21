@@ -561,11 +561,12 @@ export function render(
         drawItem(ctx, item, x, y, index);
       });
 
-      // Draw trap if owned by current player (traps are invisible to others)
+      // Draw trap if current player witnessed its placement AND can currently see the tile
       if (
         tile.feature?.type === "trap" &&
         currentCharacterId &&
-        tile.feature.ownerId === currentCharacterId
+        tile.feature.witnessIds.includes(currentCharacterId) &&
+        visibleSet.has(`${x},${y}`)
       ) {
         drawTrap(ctx, x, y);
       }

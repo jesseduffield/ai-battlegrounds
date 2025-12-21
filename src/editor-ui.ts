@@ -662,7 +662,8 @@ function setupItemForm(): void {
     if (armorGroup)
       armorGroup.style.display = type === "clothing" ? "" : "none";
     if (useEffectGroup)
-      useEffectGroup.style.display = type === "consumable" ? "" : "none";
+      useEffectGroup.style.display =
+        type === "consumable" || type === "trap" ? "" : "none";
   });
 
   useEffectTypeSelect?.addEventListener("change", () => {
@@ -703,7 +704,9 @@ function setupItemForm(): void {
     if (!name) return;
 
     let useEffect: EffectAction | undefined;
-    if (type === "consumable") {
+    let trapEffect: Effect | undefined;
+
+    if (type === "consumable" || type === "trap") {
       const effectType = useEffectTypeSelect?.value || "heal";
 
       switch (effectType) {
@@ -780,7 +783,12 @@ function setupItemForm(): void {
               actions: [...t.actions],
             })),
           };
-          useEffect = { type: "apply_effect", effect };
+
+          if (type === "trap") {
+            trapEffect = effect;
+          } else {
+            useEffect = { type: "apply_effect", effect };
+          }
           itemEffectFormTriggers = [];
           break;
       }
@@ -792,6 +800,7 @@ function setupItemForm(): void {
       damage: type === "weapon" ? damage : undefined,
       armor: type === "clothing" ? armor : undefined,
       useEffect,
+      trapEffect,
     });
 
     if (editingItemLocation) {
@@ -2079,6 +2088,34 @@ function getAllItems(): Item[] {
       name: "Health Potion",
       type: "consumable",
       useEffect: { type: "heal", amount: 10 },
+    },
+    {
+      id: "bear-trap",
+      name: "Bear Trap",
+      type: "trap",
+      trapEffect: {
+        id: createId(),
+        name: "Trapped",
+        duration: 5,
+        preventsMovement: true,
+        triggers: [
+          {
+            on: "turn_start",
+            actions: [{ type: "damage", amount: 3 }],
+          },
+          {
+            on: "on_attack",
+            actions: [
+              {
+                type: "modify_stat",
+                stat: "attack",
+                operation: "multiply",
+                value: 0.5,
+              },
+            ],
+          },
+        ],
+      },
     },
     { id: "key", name: "Key", type: "key" },
     ...createdItems,

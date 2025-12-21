@@ -1380,7 +1380,7 @@ ${pickupAction}
 - EQUIP: Equip weapon/clothing from inventory. Requires target (item name). You cannot equip and attack in the same turn.
 - UNEQUIP: Unequip weapon/clothing. Can signal good faith to others.
 - USE: Use a consumable item from inventory. Consumes the item.
-- PLACE: Place trap on an adjacent tile.
+- PLACE: Place trap on an adjacent tile. Traps are VISIBLE to anyone who witnessed you placing it (anyone who could see that tile when you placed it). They are invisible to others who weren't there to witness the placement.
 ${unlockAction}
 - DROP: Drop item from inventory.
 - CONTRACT: Offer a Blood Contract to character within 4 tiles. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-5 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.

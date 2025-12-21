@@ -362,6 +362,47 @@ describe("Traps", () => {
       expect(result.success).toBe(false);
       expect(placer.inventory.length).toBe(1); // trap still in inventory
     });
+
+    it("should only add witnesses who can see the trap placement location", () => {
+      const world = createTestWorld(10, 10);
+      const trap = createTrapItem();
+
+      const placer = createTestCharacter("Placer", 5, 5, {
+        inventory: [trap],
+        viewDistance: 10,
+      });
+      const witness = createTestCharacter("Witness", 7, 5, {
+        viewDistance: 10,
+      });
+      const behindWall = createTestCharacter("BehindWall", 9, 5, {
+        viewDistance: 10,
+      });
+
+      world.characters.push(placer, witness, behindWall);
+
+      // Place a wall between witness and behindWall
+      world.tiles[5][8].type = "wall";
+
+      // Placer places trap at (6, 5)
+      const result = executeAction(world, placer, {
+        type: "place",
+        targetItemId: trap.id,
+        targetPosition: { x: 6, y: 5 },
+      });
+
+      expect(result.success).toBe(true);
+      const trapFeature = world.tiles[5][6].feature;
+      expect(trapFeature?.type).toBe("trap");
+
+      if (trapFeature?.type === "trap") {
+        // Placer and Witness should be in witnessIds (they can see position 6,5)
+        expect(trapFeature.witnessIds).toContain(placer.id);
+        expect(trapFeature.witnessIds).toContain(witness.id);
+
+        // BehindWall should NOT be in witnessIds (wall blocks view)
+        expect(trapFeature.witnessIds).not.toContain(behindWall.id);
+      }
+    });
   });
 
   describe("trap triggering", () => {
@@ -371,6 +412,7 @@ describe("Traps", () => {
         id: createId(),
         name: "Bear Trap",
         ownerId,
+        witnessIds: [ownerId],
         appliesEffect: {
           id: createId(),
           name: "Trapped",

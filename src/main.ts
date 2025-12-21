@@ -280,6 +280,7 @@ async function processExpiredContracts(): Promise<void> {
         }
         violator.inventory = [];
         violator.equippedWeapon = undefined;
+        violator.equippedClothing = undefined;
       }
     }
   }
@@ -416,6 +417,14 @@ function updateUI(): void {
         <span>(${current.position.x}, ${current.position.y})</span>
       </div>
       <div class="stat-row">
+        <span class="stat-label">Model</span>
+        <span>${current.aiModel}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Reasoning</span>
+        <span>${current.reasoningEffort}</span>
+      </div>
+      <div class="stat-row">
         <span class="stat-label">Weapon</span>
         <span>${current.equippedWeapon?.name ?? "None"}</span>
       </div>
@@ -530,16 +539,6 @@ function addReasoningEntry(
   errors?: string[],
   reasoningSummary?: string
 ): void {
-  if (reasoning) {
-    pushEvent({
-      turn: world.turn,
-
-      actorId: character.id,
-      description: `${character.name} thought: "${reasoning}"`,
-      witnessIds: [character.id],
-    });
-  }
-
   if (fullPrompt && fullResponse) {
     const decision: AgentDecisionLog = {
       turn: world.turn,
@@ -553,6 +552,8 @@ function addReasoningEntry(
     allAgentDecisions.push(decision);
     chronologicalLog.push({ type: "decision", decision });
   }
+
+  if (!reasoning) return;
 
   const eventLogEl = document.getElementById("event-log");
   if (!eventLogEl) return;
@@ -586,8 +587,12 @@ function addReasoningEntry(
       : "";
 
   entry.innerHTML = `
-    <div class="log-turn">Turn ${world.turn} — ${character.name}'s thinking</div>
-    <div style="color: #888; font-style: italic;">"${reasoning}"</div>
+    <div class="log-turn" style="color: #666;">Turn ${world.turn} — ${
+    character.name
+  }'s thinking</div>
+    <div style="color: #888; font-style: italic;">"${escapeHtml(
+      reasoning
+    )}"</div>
     ${errorHtml}
     ${reasoningSummaryHtml}
     ${promptHtml}
@@ -806,6 +811,12 @@ function showInspector(w: World, pos: Position): void {
       <div class="stat-row"><span class="stat-label">Position</span><span>(${
         pos.x
       }, ${pos.y})</span></div>
+      <div class="stat-row"><span class="stat-label">Model</span><span>${
+        character.aiModel
+      }</span></div>
+      <div class="stat-row"><span class="stat-label">Reasoning</span><span>${
+        character.reasoningEffort
+      }</span></div>
       <div class="stat-row"><span class="stat-label">Weapon</span><span>${
         character.equippedWeapon?.name ?? "None"
       }</span></div>
@@ -1275,6 +1286,30 @@ async function processTurn(): Promise<void> {
             if (target && target.alive) {
               target.hp = 0;
               target.alive = false;
+
+              // Drop their items
+              const tile = world.tiles[target.position.y][target.position.x];
+              for (const item of target.inventory) {
+                tile.items.push(item);
+              }
+              if (target.inventory.length > 0) {
+                const itemNames = target.inventory
+                  .map((i) => i.name)
+                  .join(", ");
+                const dropEvent: GameEvent = {
+                  turn: world.turn,
+                  sound: "drop",
+                  actorId: target.id,
+                  position: target.position,
+                  description: `${target.name}'s items fell to the ground: ${itemNames}`,
+                  witnessIds: getWitnessIds(world, [target.position]),
+                };
+                pushEvent(dropEvent);
+              }
+              target.inventory = [];
+              target.equippedWeapon = undefined;
+              target.equippedClothing = undefined;
+
               const deathEvent: GameEvent = {
                 turn: world.turn,
                 sound: "death",
@@ -1533,7 +1568,7 @@ async function processTurn(): Promise<void> {
       }
 
       // Handle action results
-      if (action.type === "move") {
+      if (action.type === "move" || action.type === "move_toward") {
         if (result.success) {
           movedThisTurn = true;
           // If character got trapped, let them continue with next action
