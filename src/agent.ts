@@ -1326,7 +1326,8 @@ ${
 {"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": 5}`
 }`;
 
-  const userPrompt = `${character.personalityPrompt}
+  const userPrompt = `CHARACTER DESCRIPTION:
+${character.personalityPrompt}
 
 CURRENT SITUATION:
 ${situationDescription}
@@ -1469,7 +1470,10 @@ Duration: ${expiry} turns (expires turn ${world.turn + expiry})
 
 Respond with SIGN to accept or DECLINE to reject. You may include a message.`;
 
-  const systemPrompt = `You are ${target.name}. ${target.personalityPrompt}
+  const systemPrompt = `You are playing a character in a turn-based game on a 2D grid where (0,0) is in the top-left corner. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
+
+CHARACTER DESCRIPTION:
+${target.personalityPrompt}
 
 You are deciding whether to accept or reject a blood contract. Consider your goals, the current situation, and whether you can realistically comply with the terms.`;
 
@@ -1555,7 +1559,10 @@ export async function getConversationResponse(
   const knowledge = getCharacterKnowledge(world, speaker);
   const situationDescription = formatKnowledge(world, speaker, knowledge, true);
 
-  const systemPrompt = `You are ${speaker.name}. ${speaker.personalityPrompt}
+  const systemPrompt = `You are playing a character in a turn-based game on a 2D grid where (0,0) is in the top-left corner. Your CHARACTER DESCRIPTION below defines who you are, your goals, and your personality.
+
+CHARACTER DESCRIPTION:
+${speaker.personalityPrompt}
 
 This is a conversation response. You can ONLY respond with:
 - TALK: Say something back (requires a message). MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead.
