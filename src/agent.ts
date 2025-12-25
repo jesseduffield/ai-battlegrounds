@@ -1707,7 +1707,7 @@ Your task: Determine if either party violated the terms of the contract.
 
 Respond with JSON:
 {
-  "verdict": "Your judgment explanation (1-2 sentences, dramatic)",
+  "verdict": "Your judgment explanation (keep it brief and matter-of-fact)",
   "violators": ["Name1", "Name2"] // Empty array if no violations, or names of violators
 }
 
