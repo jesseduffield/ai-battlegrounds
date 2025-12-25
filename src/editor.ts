@@ -180,13 +180,73 @@ export function createTrapFeature(data: {
   };
 }
 
+function deepCopyFeature(feature: Feature | undefined): Feature | undefined {
+  if (!feature) return undefined;
+
+  if (feature.type === "chest") {
+    return {
+      ...feature,
+      contents: feature.contents.map((item) => ({ ...item })),
+    };
+  } else if (feature.type === "door") {
+    return { ...feature };
+  } else if (feature.type === "trap") {
+    return {
+      ...feature,
+      witnessIds: [...feature.witnessIds],
+      appliesEffect: {
+        ...feature.appliesEffect,
+        triggers: feature.appliesEffect.triggers.map((trigger) => ({
+          ...trigger,
+          actions: trigger.actions.map((action) => ({ ...action })),
+        })),
+      },
+    };
+  }
+  return feature;
+}
+
 export function editorStateToWorld(state: EditorState): World {
+  // Deep copy to prevent gameplay from mutating editor state
+  const tilesCopy: Tile[][] = state.tiles.map((row) =>
+    row.map((tile) => ({
+      ...tile,
+      items: tile.items.map((item) => ({ ...item })),
+      feature: deepCopyFeature(tile.feature),
+    }))
+  );
+
+  const charactersCopy: Character[] = state.characters.map((char) => ({
+    ...char,
+    position: { ...char.position },
+    inventory: char.inventory.map((item) => ({ ...item })),
+    equippedWeapon: char.equippedWeapon
+      ? { ...char.equippedWeapon }
+      : undefined,
+    equippedClothing: char.equippedClothing
+      ? { ...char.equippedClothing }
+      : undefined,
+    effects: char.effects.map((effect) => ({
+      ...effect,
+      triggers: effect.triggers.map((trigger) => ({
+        ...trigger,
+        actions: trigger.actions.map((action) => ({ ...action })),
+      })),
+    })),
+    mapMemory: new Map(char.mapMemory),
+  }));
+
+  const roomsCopy: Room[] = state.rooms.map((room) => ({
+    ...room,
+    bounds: { ...room.bounds },
+  }));
+
   return {
     width: state.width,
     height: state.height,
-    tiles: state.tiles,
-    characters: state.characters,
-    rooms: state.rooms,
+    tiles: tilesCopy,
+    characters: charactersCopy,
+    rooms: roomsCopy,
     turn: 0,
     events: [],
     activeContracts: [],

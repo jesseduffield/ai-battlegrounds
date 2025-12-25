@@ -327,6 +327,21 @@ function updatePropertiesPanel(x: number, y: number): void {
     html += `<h4>Feature: ${tile.feature.name}</h4>`;
     html += `<p style="color: var(--text-secondary);">Type: ${tile.feature.type}</p>`;
 
+    // Show door properties
+    if (tile.feature.type === "door") {
+      const door = tile.feature;
+      const lockedChecked = door.locked ? "checked" : "";
+      html += `<div style="margin: 0.5rem 0;">`;
+      html += `<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">`;
+      html += `<input type="checkbox" ${lockedChecked} onchange="window.editorToggleDoorLocked(${x}, ${y}, this.checked)">`;
+      html += `<span>🔒 Locked</span>`;
+      html += `</label>`;
+      if (door.locked) {
+        html += `<p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">Add a "Key for ${door.name}" to the map to allow unlocking.</p>`;
+      }
+      html += `</div>`;
+    }
+
     // Show chest contents if it's a chest
     if (tile.feature.type === "chest") {
       const chest = tile.feature;
@@ -1806,6 +1821,20 @@ function updateEditorCanvas(): void {
   saveState();
 };
 
+(window as any).editorToggleDoorLocked = (
+  x: number,
+  y: number,
+  locked: boolean
+) => {
+  const tile = editorState.tiles[y][x];
+  if (tile.feature?.type === "door") {
+    tile.feature.locked = locked;
+    updateEditorCanvas();
+    updatePropertiesPanel(x, y);
+    saveState();
+  }
+};
+
 (window as any).editorShowAddItem = (x: number, y: number) => {
   const panel = document.getElementById("properties-content");
   if (!panel) return;
@@ -2080,6 +2109,23 @@ export function getCustomWorld() {
 }
 
 function getAllItems(): Item[] {
+  // Find all doors on the map to create door-specific keys
+  const doorKeys: Item[] = [];
+  for (let y = 0; y < editorState.height; y++) {
+    for (let x = 0; x < editorState.width; x++) {
+      const tile = editorState.tiles[y][x];
+      if (tile.feature?.type === "door") {
+        const door = tile.feature;
+        doorKeys.push({
+          id: `key-for-${door.id}`,
+          name: `Key for ${door.name}`,
+          type: "key",
+          unlocksFeatureId: door.id,
+        });
+      }
+    }
+  }
+
   return [
     { id: "sword", name: "Sword", type: "weapon", damage: 5 },
     { id: "shield", name: "Shield", type: "clothing", armor: 3 },
@@ -2117,7 +2163,7 @@ function getAllItems(): Item[] {
         ],
       },
     },
-    { id: "key", name: "Key", type: "key" },
+    ...doorKeys,
     ...createdItems,
   ];
 }
