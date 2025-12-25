@@ -29,12 +29,23 @@ function getVoiceForCharacter(character: Character): string {
 }
 
 let currentAudio: HTMLAudioElement | null = null;
+let currentAudioPromise: Promise<void> | null = null;
 
 export function initializeSpeech(apiKey: string): void {
   openai = new OpenAI({
     apiKey,
     dangerouslyAllowBrowser: true,
   });
+}
+
+export function isSpeechPlaying(): boolean {
+  return currentAudio !== null;
+}
+
+export async function waitForSpeech(): Promise<void> {
+  if (currentAudioPromise) {
+    await currentAudioPromise;
+  }
 }
 
 export async function speakText(
@@ -50,6 +61,7 @@ export async function speakText(
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
+    currentAudioPromise = null;
   }
 
   const voice = getVoiceForCharacter(character);
@@ -66,12 +78,25 @@ export async function speakText(
     const url = URL.createObjectURL(blob);
 
     currentAudio = new Audio(url);
+
+    currentAudioPromise = new Promise<void>((resolve) => {
+      currentAudio!.onended = () => {
+        URL.revokeObjectURL(url);
+        currentAudio = null;
+        currentAudioPromise = null;
+        resolve();
+      };
+      currentAudio!.onerror = () => {
+        URL.revokeObjectURL(url);
+        currentAudio = null;
+        currentAudioPromise = null;
+        resolve();
+      };
+    });
+
     currentAudio.play();
 
-    currentAudio.onended = () => {
-      URL.revokeObjectURL(url);
-      currentAudio = null;
-    };
+    await currentAudioPromise;
   } catch (err) {
     console.error("TTS error:", err);
   }
@@ -87,6 +112,7 @@ export async function speakJudgeVerdict(text: string): Promise<void> {
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
+    currentAudioPromise = null;
   }
 
   try {
@@ -101,12 +127,25 @@ export async function speakJudgeVerdict(text: string): Promise<void> {
     const url = URL.createObjectURL(blob);
 
     currentAudio = new Audio(url);
+
+    currentAudioPromise = new Promise<void>((resolve) => {
+      currentAudio!.onended = () => {
+        URL.revokeObjectURL(url);
+        currentAudio = null;
+        currentAudioPromise = null;
+        resolve();
+      };
+      currentAudio!.onerror = () => {
+        URL.revokeObjectURL(url);
+        currentAudio = null;
+        currentAudioPromise = null;
+        resolve();
+      };
+    });
+
     currentAudio.play();
 
-    currentAudio.onended = () => {
-      URL.revokeObjectURL(url);
-      currentAudio = null;
-    };
+    await currentAudioPromise;
   } catch (err) {
     console.error("TTS error:", err);
   }
@@ -116,5 +155,6 @@ export function stopSpeech(): void {
   if (currentAudio) {
     currentAudio.pause();
     currentAudio = null;
+    currentAudioPromise = null;
   }
 }

@@ -273,7 +273,7 @@ async function processExpiredContracts(): Promise<void> {
     const verdict = await judgeContract(contract, world.events, world);
 
     // Speak the judgment with the deep judge voice
-    speakJudgeVerdict(verdict.verdict);
+    await speakJudgeVerdict(verdict.verdict);
 
     // Log the judgment
     const judgmentEvent: GameEvent = {
@@ -1097,9 +1097,9 @@ async function handleConversation(
 
     // Show their response
     showThoughtBubble(speaker, responseMessage, "speaking");
-    speakText(responseMessage, speaker);
+    await speakText(responseMessage, speaker);
     if (!fastMode) {
-      await delay(2500);
+      await delay(500); // Brief pause after speech
     }
     hideThoughtBubble();
 
@@ -1195,9 +1195,9 @@ async function handleContractNegotiation(
     // Show their response if any
     if (result.response) {
       showThoughtBubble(target, result.response, "speaking");
-      speakText(result.response, target);
+      await speakText(result.response, target);
       if (!fastMode) {
-        await delay(2500);
+        await delay(500); // Brief pause after speech
       }
       hideThoughtBubble();
     }
@@ -1238,9 +1238,9 @@ async function handleContractNegotiation(
   // Show their response if any
   if (result.message) {
     showThoughtBubble(target, result.message, "speaking");
-    speakText(result.message, target);
+    await speakText(result.message, target);
     if (!fastMode) {
-      await delay(2500);
+      await delay(500); // Brief pause after speech
     }
     hideThoughtBubble();
   }
@@ -1633,9 +1633,9 @@ async function processTurn(): Promise<void> {
         }
 
         showThoughtBubble(current, action.message, "speaking");
-        speakText(action.message, current);
+        await speakText(action.message, current);
         if (!fastMode) {
-          await delay(2500);
+          await delay(500); // Brief pause after speech
         }
         hideThoughtBubble();
 
@@ -1671,9 +1671,9 @@ async function processTurn(): Promise<void> {
           // Speak the pitch if provided
           if (action.message) {
             showThoughtBubble(current, action.message, "speaking");
-            speakText(action.message, current);
+            await speakText(action.message, current);
             if (!fastMode) {
-              await delay(2500);
+              await delay(500); // Brief pause after speech
             }
             hideThoughtBubble();
           }
@@ -2295,9 +2295,9 @@ async function executePlayerTalk(): Promise<void> {
   if (result.success) {
     // Show speech bubble
     showThoughtBubble(current, message, "speaking");
-    speakText(message, current);
+    await speakText(message, current);
     if (!fastMode) {
-      await delay(2500);
+      await delay(500); // Brief pause after speech
     }
     hideThoughtBubble();
 
