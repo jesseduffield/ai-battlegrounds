@@ -20,6 +20,7 @@ import {
 import OpenAI from "openai";
 
 const MAX_COMPLETION_TOKENS = 10_000;
+export const MAX_CONTRACT_EXPIRY = 3;
 export const DEFAULT_AI_MODEL = "gpt-5.2";
 export const DEFAULT_REASONING_EFFORT = "none" as const;
 
@@ -1166,10 +1167,13 @@ function parseJsonAction(
       if (jsonResponse.expiry === null) {
         return { action: null, error: "CONTRACT requires expiry" };
       }
-      if (jsonResponse.expiry < 1 || jsonResponse.expiry > 3) {
+      if (
+        jsonResponse.expiry < 1 ||
+        jsonResponse.expiry > MAX_CONTRACT_EXPIRY
+      ) {
         return {
           action: null,
-          error: "CONTRACT expiry must be between 1 and 3 turns",
+          error: `CONTRACT expiry must be between 1 and ${MAX_CONTRACT_EXPIRY} turns`,
         };
       }
       const legalContract = legalActions.find(
@@ -1294,14 +1298,14 @@ ONE ACTION PER RESPONSE. After each action, you'll see the result and can decide
 
 Things to know:
 
-* Movement: Use MOVE for immediate destinations (listed in legal actions). You can only make one move per turn, so if you need to travel a large distance, don't just pick an adjacent tile. Use MOVE_TOWARD for any coordinate - it will pathfind and move as far as possible toward that location. If the destination is unreachable, you'll move toward it as close as possible.
+* Movement: Use MOVE for immediate destinations (listed in legal actions). You can only make one move per turn, so if you need to travel a large distance, don't just pick an adjacent tile. Use MOVE_TOWARD for any coordinate - it will pathfind and move as far as possible toward that location. If the destination is unreachable, you'll move toward it as close as possible. You cannot traverse walls, bars, or locked doors.
 * Talking: MAX 20 WORDS!!! Don't mention coordinates or HP: use general terms instead. Don't repeat something you've already said in prior turns: if you have nothing new to say, say nothing.
 * If you choose to attack, it will end your turn.
 * If you want to search a container, you must first step to an adjacent tile and then search it. Don't step onto the container itself.
 * Unequiping an item can signal good faith to others, because you can't both equip and attack in the same turn.
 * 'Use'ing an item will consume it.
 * When placing a trap, place it on an adjacent tile, not your current tile. Traps are VISIBLE to anyone who witnessed you placing it (anyone who could see that tile when you placed it). They are invisible to others who weren't there to witness the placement.
-* Blood contracts: You can offer a Blood Contract to any nearby character. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-3 turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
+* Blood contracts: You can offer a Blood Contract to any nearby character. They immediately choose to sign or decline. Requires target (character name), terms (the contract terms), expiry (1-${MAX_CONTRACT_EXPIRY} turns), and optional message (your pitch). Max 2 per turn. If the contract expiry occurs and either party has violated the terms, the Great Judge will kill them. Blood contracts allow for more secure cooperation.
 * 'Wait' action will end your turn.
 
 Respond with JSON:
@@ -1316,14 +1320,14 @@ ${
   turnHistory.length > 0
     ? `{"thought": null, "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
 {"thought": null, "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
-{"thought": null, "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "Let's team up!", "terms": "Neither party attacks the other", "expiry": 3}
+{"thought": null, "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "Let's team up!", "terms": "Neither party attacks the other", "expiry": ${MAX_CONTRACT_EXPIRY}}
 {"thought": null, "action": "SIGN", "x": null, "y": null, "target": null, "message": "Deal.", "terms": null, "expiry": null}
 {"thought": null, "action": "WAIT", "x": null, "y": null, "target": null, "message": null, "terms": null, "expiry": null}`
     : `{"thought": "There he is.", "action": "MOVE", "x": 12, "y": 5, "target": null, "message": null}
 {"thought": "Need to reach that unexplored area.", "action": "MOVE_TOWARD", "x": 5, "y": 3, "target": null, "message": null}
 {"thought": "Got him.", "action": "ATTACK", "x": null, "y": null, "target": "Kane", "message": null, "terms": null, "expiry": null}
 {"thought": "Need a weapon.", "action": "SEARCH", "x": null, "y": null, "target": "Supply Crate", "message": null, "terms": null, "expiry": null}
-{"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": 3}`
+{"thought": "An alliance could help.", "action": "CONTRACT", "x": null, "y": null, "target": "Luna", "message": "We're both in danger. Work with me.", "terms": "We protect each other until only enemies remain", "expiry": ${MAX_CONTRACT_EXPIRY}}`
 }`;
 
   const userPrompt = `CHARACTER DESCRIPTION:

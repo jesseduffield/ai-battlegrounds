@@ -272,8 +272,10 @@ async function processExpiredContracts(): Promise<void> {
     // Judge the contract
     const verdict = await judgeContract(contract, world.events, world);
 
-    // Speak the judgment with the deep judge voice
+    // Show the judge's speech bubble and speak the judgment
+    showJudgeBubble(verdict.verdict);
     await speakJudgeVerdict(verdict.verdict);
+    hideThoughtBubble();
 
     // Log the judgment
     const judgmentEvent: GameEvent = {
@@ -298,7 +300,7 @@ async function processExpiredContracts(): Promise<void> {
 
         const deathEvent: GameEvent = {
           turn: world.turn,
-
+          sound: "judgment",
           actorId: violator.id,
           description: `💀 ${violator.name} is struck dead by divine judgment for violating the Blood Contract!`,
           witnessIds: world.characters.filter((c) => c.alive).map((c) => c.id),
@@ -392,6 +394,31 @@ function hideThoughtBubble(): void {
   if (bubble) {
     bubble.classList.remove("visible");
     bubble.classList.add("placeholder");
+  }
+}
+
+function showJudgeBubble(text: string): void {
+  const bubble = document.getElementById("thought-bubble");
+  const avatar = document.getElementById("thought-avatar");
+  const name = document.getElementById("thought-name");
+  const content = document.getElementById("thought-content");
+  const modeIndicator = document.getElementById("thought-mode");
+
+  if (bubble && avatar && name && content) {
+    const color = "#ff4444"; // Red for the judge
+    avatar.style.backgroundColor = color;
+    avatar.textContent = "⚖️";
+    name.textContent = "The Great Judge";
+    name.style.color = color;
+
+    content.innerHTML = `<strong>"${text}"</strong>`;
+    if (modeIndicator) modeIndicator.textContent = "⚖️";
+    bubble.classList.remove("thinking");
+    bubble.classList.add("speaking");
+
+    bubble.classList.remove("placeholder");
+    bubble.classList.add("visible");
+    bubble.style.borderColor = color;
   }
 }
 
@@ -855,6 +882,8 @@ function showInspector(w: World, pos: Position): void {
       <div class="stat-row"><span class="stat-label">Armor</span><span>${
         character.equippedClothing?.name ?? "None"
       }</span></div>
+      <div style="margin-top: 0.5rem; font-weight: 600;">Prompt:</div>
+      <div style="font-size: 0.85rem; color: var(--text-secondary); white-space: pre-wrap; max-height: 150px; overflow-y: auto; padding: 0.25rem; background: var(--bg-tertiary); border-radius: 4px; margin-top: 0.25rem;">${character.personalityPrompt}</div>
     `;
 
     if (character.inventory.length > 0) {

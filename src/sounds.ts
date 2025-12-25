@@ -7,7 +7,8 @@ type SoundName =
   | "unlock"
   | "drop"
   | "search"
-  | "trap";
+  | "trap"
+  | "judgment";
 
 const audioContext = new (window.AudioContext ||
   (window as unknown as { webkitAudioContext: typeof AudioContext })
@@ -127,6 +128,18 @@ const soundEffects: Record<SoundName, () => void> = {
     playTone(800, 0.05, "square", 0.4);
     playNoise(0.2, 0.3, 1000);
     setTimeout(() => playTone(600, 0.1, "square", 0.3), 100);
+  },
+
+  judgment: () => {
+    // Dramatic divine judgment sound - deep ominous tone with descending notes
+    playTone(150, 0.5, "sawtooth", 0.5);
+    playTone(75, 0.6, "sine", 0.3);
+    setTimeout(() => playTone(120, 0.4, "sawtooth", 0.4), 200);
+    setTimeout(() => playTone(80, 0.5, "sawtooth", 0.3), 400);
+    setTimeout(() => {
+      playNoise(0.3, 0.4, 200);
+      playTone(60, 0.4, "sawtooth", 0.4);
+    }, 500);
   },
 };
 

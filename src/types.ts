@@ -287,7 +287,8 @@ export type SoundEffect =
   | "search"
   | "trap"
   | "unlock"
-  | "use";
+  | "use"
+  | "judgment";
 
 export type GameEvent = {
   turn: number;
