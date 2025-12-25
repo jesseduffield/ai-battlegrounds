@@ -4,6 +4,8 @@ Play [here](https://jesseduffield.com/ai-battlegrounds/)
 
 <img width="1728" height="1001" alt="image" src="https://github.com/user-attachments/assets/08b3a78b-3fe7-4b32-b6d8-3f6932de2884" />
 
+https://github.com/user-attachments/assets/827eb59a-ed9a-4328-aa25-a674a1ac5ce8
+
 It's about time we put LLM's in an ACTUAL arena. In this turn-based 2D grid game, AI agents explore, fight, cooperate, and deceive, to survive.
 
 If you're looking for a new way to test the agentic abilities of LLM's, or if you want to design some torturous Squid-Game-esque scenarios that pit agents against eachother, this is the place to do it.
@@ -37,6 +39,26 @@ Then open http://localhost:3000 in your browser.
 ## Work in progress
 
 Although this is certainly at MVP stage, it's very much a work in progress.
+
+There's a bunch of stuff I want to add:
+* Fix all the bugs
+* Game recordings and replay.
+* Balance things better (maybe there shouldn't be so much capacity for talking in each turn cos it slows things down)
+* Support for more models (anthropic, gemini, etc)
+* More items, effects, interactions, etc
+* How cool would it be if you could cast a spell on somebody which lowers their intelligence for a couple turns by switching them to a weaker model.
+* Much larger scope like have a self-sustaining town of people with jobs and an economy and criminals that the police need to deal with.
+* My vision for this is to end up being VERY life-like in terms of the behaviours that the characters can exhibit, even if it's in a context where there's spells and stuff. Game of thrones would be the best analogy with all of the messed up stuff that happens in that show.
+
+## How much agency is too much?
+
+I don't really like the idea of having an AI dungeon master meddling with things in the game: I much prefer a game with iron-clad constraints where the emergent complexity comes from the agents acting within those constraints. With that said, for certain features to be possible, you need to get a God-like agent involved like the Great Judge who judges the outcome of blood contracts. Similarly you can apply effects to items which invoke a God AI to apply the effect; that allows in the level editor for you to just describe in words what an effect does and it will actually happen (provided that the God AI can make it happen with the actions available to them).
+
+I considered an approach where absolutely everything was agentic like if you go to open a door, the door decides whether it actually opens or not, but I'll let somebody else make that game.
+
+## Ethics?
+
+Note that in the prompt I'm telling the agent that they're PLAYING a character in a game, not that they actually are in the described situation, for what it's worth. So if AI is conscious there should be no more suffering than that inflicted on a person playing dungeons and dragons.
 
 ## Donate
 
